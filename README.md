@@ -17,6 +17,13 @@ interrupção continuam não observados; não há validação física integral.
 Qualquer nova instalação/alteração física exige autorização. Evidências atuais em
 [`docs/testing/monitor-local-results.md`](docs/testing/monitor-local-results.md).
 
+**Ajuste visual posterior:** ícones inferiores trocados por vetores de 28 dp,
+com rótulos e áreas de toque preservados. APK local revisado e verificado:
+112 JVM / 146 instrumentados, lint 0 erros / 8 avisos anteriores.
+Essa revisão visual ainda não foi instalada no S23 pelo assistente.
+Artefato e evidências em
+[`docs/testing/bottom-navigation-icons-results.md`](docs/testing/bottom-navigation-icons-results.md).
+
 ## Como funciona
 
 - Consulte o saldo atual no C6 e informe um **saldo de referência**. Ele já

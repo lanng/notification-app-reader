@@ -13,6 +13,12 @@
 **Status:** specification approved by user; implementation plan independently
 reviewed and approved after clarifying minimum 48 dp touch-target assertions.
 Baseline JVM rerun and local build/lint accepted before production edits.
+RED/GREEN implementation delivered. Independent spec review approved;
+controller full verification: 112 JVM / 146 instrumented, no failures/errors/skips,
+lint 0 errors / 8 prior warnings. Independent final quality review approved,
+no findings. APK hash/signature checked; owned emulator shut down.
+Implementation/test commits recorded; task complete. Installation will be manual
+by the user, without assistant action.
 
 ## Authorization and evidence path
 
@@ -54,35 +60,35 @@ Baseline JVM rerun and local build/lint accepted before production edits.
 
 ## Task 1 — RED: rendered icon regression
 
-- [ ] Create the owned read-only AVD with the established command below, using
+- [x] Create the owned read-only AVD with the established command below, using
   the Windows SDK; fail rather than reusing a pre-existing port.
-- [ ] Add a Compose test that renders `MonitorRoot` with synthetic state and
+- [x] Add a Compose test that renders `MonitorRoot` with synthetic state and
   no-op actions. Use `mutableStateOf` for theme, font scale and forced size,
   and `DeviceConfigurationOverride` with `LocalDensity` captured via `SideEffect`.
-- [ ] For both light/dark, font scales 1/2, and sizes 390×844/740×360 dp,
+- [x] For both light/dark, font scales 1/2, and sizes 390×844/740×360 dp,
   check all three `tab-icon-{overview,history,settings}` nodes in the unmerged
   tree with `assertWidthIsEqualTo(28.dp)` and `assertHeightIsEqualTo(28.dp)`.
   Check each corresponding tab touch dimension is **at least** 48 dp:
   `touch.width + 0.001f >= 48f * localDensity` and
   `touch.height + 0.001f >= 48f * localDensity`. This is not equality;
   larger targets are valid. The tolerance is only physical-pixel float noise.
-- [ ] Check icons have no `ContentDescription` or click semantics; each merged
+- [x] Check icons have no `ContentDescription` or click semantics; each merged
   tab has its visible label, a click action and exactly one matching actionable
   label node. Assert old Unicode texts absent. Click each tab and assert its
   selected state and destination; return to overview for each configuration.
-- [ ] Run only `MonitorBottomNavigationTest` with the focused command below.
+- [x] Run only `MonitorBottomNavigationTest` with the focused command below.
   Expected RED: missing icon node, not a compiler/environment error. Record it
   before adding production resources or modifying `MonitorRoot`.
 
 ## Task 2 — GREEN: vector replacement
 
-- [ ] Add three XML `<vector>` resources with intrinsic `28dp` width/height,
+- [x] Add three XML `<vector>` resources with intrinsic `28dp` width/height,
   `24`×`24` viewport and simple black filled paths (tinted by `Icon`).
   Overview uses four tiles spanning coordinates 3–21; history uses a circular
   return arrow and clock hands; settings uses a gear with a circular cutout.
   Keep path extent substantial (about 18–21 viewport units), not a padded
   miniature drawing. No notification-icon or dependency changes.
-- [ ] Replace `icon = { Text(listOf("◉", "≡", "⚙")[index]) }` with:
+- [x] Replace `icon = { Text(listOf("◉", "≡", "⚙")[index]) }` with:
 
 ```kotlin
 icon = {
@@ -100,27 +106,27 @@ icon = {
 },
 ```
 
-- [ ] Repeat the focused command; expected GREEN for all configuration assertions.
+- [x] Repeat the focused command; expected GREEN for all configuration assertions.
   Diagnose any failure without weakening the accepted 28 dp/48 dp criteria.
-- [ ] Add a synthetic screenshot test for both themes at normal portrait size;
+- [x] Add a synthetic screenshot test for both themes at normal portrait size;
   capture to app test files using `captureToImage().asAndroidBitmap()` and PNG
   output, following `MonitorFinalLayoutTest.save`.
-- [ ] Run the focused class again, extract only those two synthetic PNGs from
+- [x] Run the focused class again, extract only those two synthetic PNGs from
   the owned AVD using `exec-out run-as ... cat files/<name>` and inspect them.
 
 ## Task 3 — Regression, review and checkpoint
 
-- [ ] Run JVM/debug/APKtest/lint and the complete instrumented suite with the
+- [x] Run JVM/debug/APKtest/lint and the complete instrumented suite with the
   owned AVD explicitly selected. Parse XML totals/failures/skips and lint issues.
-- [ ] Request an independent read-only spec/quality review of this narrow diff.
+- [x] Request an independent read-only spec/quality review of this narrow diff.
   Fix concrete findings and rerun affected checks.
-- [ ] Calculate APK size and SHA-256. Record RED/GREEN, full results, review,
+- [x] Calculate APK size and SHA-256. Record RED/GREEN, full results, review,
   screenshot scope and the fact that the S23 still has the prior artifact.
   No physical update has been authorized.
-- [ ] Commit source/tests/images and documentation with English Conventional
+- [x] Commit source/tests/images and documentation with English Conventional
   Commits, checking `git diff --check` first. Keep the feature branch.
-- [ ] Shut down only the owned emulator. Report outcome, APK path and ask for
-  separate consent if the user wants installation.
+- [x] Shut down only the owned emulator. Report outcome and APK path for the
+  user's explicitly chosen manual installation; do not perform it.
 
 ## Runnable commands
 

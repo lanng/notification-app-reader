@@ -9,13 +9,17 @@ Tarefa 10: S23 atualizado para 1.1/código 2 com autorização; sessão assistid
 encerrada com evidência parcial e cenários residuais explícitos no fechamento.
 Nenhuma permissão física alterada por comando.
 
-**Visual follow-up:** após a checagem funcional, usuário apontou ícones inferiores
-pequenos e aprovou conceitualmente trocá-los por vetores de 28 dp, preservando
-nomes/cores/alvos. Causa conferida em `MonitorRoot.kt`: ícones atuais são `Text`
-com caracteres Unicode. Especificação em
+**Visual follow-up concluído por implementação delegada e revisões:** após a checagem funcional,
+usuário apontou ícones inferiores pequenos e aprovou a especificação escrita de
+vetores de 28 dp, preservando nomes/cores/alvos. Causa conferida em `MonitorRoot.kt`:
+ícones eram `Text` com caracteres Unicode. Especificação em
 `docs/superpowers/specs/2026-11-17-bottom-navigation-icons-design.md`;
-revisão e aprovação do documento precedem implementação. Nenhuma troca de ícone
-ou nova instalação foi feita neste checkpoint.
+documento, plano e implementação aprovados em revisões independentes.
+Verificação do controlador: 112 JVM / 146 instrumentados, zero falhas/erros/
+ignorados, lint 0 erros / 8 avisos anteriores. APK gerado para a instalação manual
+posterior escolhida pelo usuário. Evidências e novo hash em
+`docs/testing/bottom-navigation-icons-results.md`. Nenhum acesso físico nem
+instalação pelo assistente nesta etapa.
 
 ## Baseline — 2026-11-17
 
