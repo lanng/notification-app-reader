@@ -635,13 +635,20 @@ não está integralmente concluída nem autoriza instalação no S23.
 
 ## Tarefa 10 — Atualização e validação assistida no S23
 
+**Status:** sessão iniciada com nova autorização explícita (“Conectado, sim
+autorizo”). Metadados e artefato reconfirmados; atualização aplicada com
+`install -r --user 0` e versionCode 2 confirmado. Monitor iniciado com Status ok;
+conferência visual do histórico e cenários funcionais ainda pendentes.
+TalkBack manual da T9 permanece aberto e será conferido de forma assistida,
+sem considerar os testes semânticos uma validação de fala/foco.
+
 **Files:** checklist físico e resultados do monitor, `README.md`.
 
-- [ ] 1. Apresentar o estado e solicitar conexão/autorização para atualizar.
+- [x] 1. Apresentar o estado e solicitar conexão/autorização para atualizar.
   Não assumir que a autorização da instalação anterior vale para esta rodada.
-- [ ] 2. Com consentimento, confirmar exatamente um alvo autorizado e o
+- [x] 2. Com consentimento, confirmar exatamente um alvo autorizado e o
   modelo/API/pacote por consultas de metadados; não gravar serial em documentos.
-- [ ] 3. Verificar BuildConfig `com.c6bank.app`, build e SHA do APK. Instalar
+- [x] 3. Verificar BuildConfig `com.c6bank.app`, build e SHA do APK. Instalar
   com `adb -s ... install -r` sem desinstalar, limpar dados ou puxar banco privado.
 - [ ] 4. Conferir registros anteriores e orientar saldo atual/limite/configuração.
   Acesso à captura e POST_NOTIFICATIONS são decisões manuais separadas.

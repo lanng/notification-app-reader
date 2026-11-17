@@ -203,7 +203,10 @@ pendências, ajustes e diagnóstico integrados. Verificação final: 112 JVM e
 144 instrumentados aprovados, lint 0 erros/8 avisos.
 Tarefa 9: integração técnica, evidências, auditoria do APK e revisão de código
 aprovadas; leitura/foco reais do TalkBack ainda pendentes. Tarefa 10 continua
-dependente de nova autorização explícita para atualizar o S23.
+em validação assistida: usuário concedeu nova autorização, atualização
+`install -r --user 0` concluída e versionCode 2 confirmado; conferência visual,
+TalkBack e cenários reais ainda pendentes. Não houve limpeza ou concessão de
+permissão por comando.
 
 - [x] Tarefa 1: baseline, WorkManager e infraestrutura.
 - [x] Tarefa 2: regras financeiras e conferência.

@@ -3,8 +3,9 @@
 ## Estado
 
 Execução com subagents autorizada após a T7. Tarefas 1–8 concluídas e revisadas.
-Tarefa 9: integração técnica aprovada; leitura/foco manuais do TalkBack pendentes. Nenhuma nova
-versão foi instalada no S23, nenhum aviso físico emitido e nenhuma permissão física alterada.
+Tarefa 9: integração técnica aprovada; leitura/foco manuais do TalkBack pendentes.
+Tarefa 10: após nova autorização, S23 atualizado para 1.1/código 2. Conferência
+visual e cenários reais pendentes. Nenhuma permissão física alterada por comando.
 
 ## Baseline — 2026-11-17
 
@@ -714,3 +715,43 @@ Commits locais desta entrega na `feat/monitor-history-and-settings`:
 
 Emulador read-only próprio `emulator-5572` encerrado com `emu kill`, resposta OK.
 S23 permanece sem atualização, novas consultas ou alteração de permissões.
+
+## Tarefa 10 — sessão assistida autorizada
+
+Após solicitação explícita de conexão USB e autorização de atualização
+preservando dados, o usuário confirmou: “Conectado, sim autorizo”.
+Reconferido exatamente um alvo físico autorizado: SM-S911B, Android 17/API 37.
+Origem C6 confirmada anteriormente (`com.c6bank.app`) instalada; app existente
+`br.com.c6tag.diagnostico` com versionCode 1 no usuário principal 0.
+Nenhum serial registrado neste relatório; seleção operacional é temporária e
+externa ao repositório.
+
+Uma consulta inicial de pacotes sem filtro de usuário retornou os pacotes
+esperados, mas também aviso de acesso negado a perfil restrito. Limitada a
+consulta ao usuário principal 0, sem tentar acessar o perfil restrito, ela
+terminou sem aviso. Apenas metadados foram consultados.
+
+Build/JVM/APKtest/lint reconfirmados com exit 0, sem connectedAndroidTest no
+aparelho físico. APK e hash coincidem com a rodada revisada:
+versão 1.1/código 2, 12.973.580 bytes, SHA-256
+`1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
+BuildConfig exato e ausência de permissões proibidas conferidos novamente.
+Atualização ainda não executada neste registro; leitura/foco do TalkBack
+continuam pendentes de observação manual assistida.
+
+### Atualização autorizada aplicada
+
+Após verificar novamente o mesmo alvo físico, modelo e usuário principal 0,
+`adb -s <alvo autorizado> install -r --user 0 app-debug.apk` retornou `Success`.
+Metadados do pacote existente confirmaram versionCode 2 (antes 1).
+Não houve desinstalação, limpeza de dados, instalação de APK de teste nem
+concessão de permissões por comando.
+
+Iniciado somente `br.com.c6tag.diagnostico/.MainActivity` no usuário principal:
+`am start -W` retornou `Status: ok`, `LaunchState: COLD`, atividade esperada.
+Isso comprova atualização/início aceitos pelo sistema, não tela vista, migração
+conferida pelo usuário, captura completa, som ou alertas físicos.
+
+Próxima observação assistida: usuário confere a interface e os registros antigos
+em Ajustes → Diagnóstico técnico, sem limpar/exportar ou enviar conteúdo privado.
+Depois, configurar referência local e conferir TalkBack e fluxos naturais.

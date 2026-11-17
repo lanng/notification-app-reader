@@ -2,9 +2,10 @@
 
 ## Estado
 
-**Não executado.** A instalação diagnóstica anterior não autoriza esta atualização.
-Este roteiro prepara a Tarefa 10; a Tarefa 9 deve concluir a verificação sintética
-e a revisão final antes de propor instalação física.
+**Atualização aplicada; validação visual em andamento.** Após solicitar conexão e
+autorização para atualizar preservando dados, o usuário respondeu:
+“Conectado, sim autorizo”. Verificações sintéticas e revisão final aprovadas;
+TalkBack manual permanece pendente e será conferido de forma assistida.
 
 Modelo/API anteriormente observados: SM-S911B, Android 17/API 37.
 Confirmá-los novamente somente após consentimento; não registrar serial.
@@ -28,19 +29,32 @@ Nenhum resultado esperado abaixo está validado apenas por constar neste arquivo
 
 ## Portão de instalação
 
-- [ ] Tarefas 8/9 concluídas, testes completos e revisão final aprovados.
-- [ ] Usuário autorizou nova identificação USB e atualização preservando dados.
-- [ ] Exatamente um alvo autorizado selecionado; modelo/API conferidos sem serial.
-- [ ] Pacote C6 confirmado pelo usuário; `BuildConfig.C6_PACKAGE_NAME` exato.
-- [ ] APK contém `br.com.c6tag.diagnostico`, versionCode 2/versionName 1.1.
-- [ ] Manifesto/APK auditados: sem INTERNET, alarme exato, DND ou full-screen.
-- [ ] SHA-256 e data do APK final registrados abaixo, antes da instalação.
-- [ ] Atualização por `adb -s SERIAL install -r ...` sem desinstalar/limpar dados.
+- [x] Tarefa 8 e parte técnica da T9 concluídas, testes e revisão final aprovados.
+- [x] Usuário autorizou nova identificação USB e atualização preservando dados.
+- [x] Exatamente um alvo autorizado selecionado; modelo/API conferidos sem serial.
+- [x] Pacote C6 confirmado pelo usuário; `BuildConfig.C6_PACKAGE_NAME` exato.
+- [x] APK contém `br.com.c6tag.diagnostico`, versionCode 2/versionName 1.1.
+- [x] Manifesto/APK auditados: sem INTERNET, alarme exato, DND ou full-screen.
+- [x] SHA-256 e data do APK final registrados abaixo, antes da instalação.
+- [x] Atualização por `adb -s SERIAL install -r ...` sem desinstalar/limpar dados.
 - [ ] Histórico de observações anterior ainda disponível após atualização.
 
-SHA-256 do APK: **a preencher após o build final**.
-Data/build/commit: **a preencher**.
-Consentimento e resultado da atualização: **pendentes**.
+SHA-256 do APK:
+`1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
+Data/build/commit: 2026-11-17, versão 1.1/código 2, checkpoint `2cfc926`
+(código funcional `e2cb3c8`), 12.973.580 bytes.
+Consentimento: recebido nesta sessão. `install -r --user 0` retornou `Success`;
+versionCode 2 confirmado por metadados. Somente o Monitor foi iniciado,
+com `am start -W --user 0`, `Status: ok`.
+Histórico preservado visualmente e funcionamento real ainda aguardam o usuário;
+sucesso da atualização não prova migração/captura/alerta físico por si só.
+
+Metadados reconfirmados: um S23 SM-S911B, Android 17/API 37, usuário principal 0.
+Origem `com.c6bank.app` instalada; app existente `br.com.c6tag.diagnostico`
+com código 1. Nenhum serial foi incluído neste documento.
+Uma consulta inicial sem filtro de usuário produziu aviso de acesso negado a
+perfil restrito; consultas posteriores usam explicitamente o usuário principal 0.
+Nenhuma tentativa de contornar o isolamento ou inspecionar esse perfil foi feita.
 
 Exemplo para calcular o hash local, sem tocar no aparelho:
 
@@ -105,7 +119,8 @@ Nada acima deve ser marcado como concluído sem observação real e consentida.
 
 ## Encerramento
 
-Resultado: **PENDENTE** — nenhuma validação do monitor no aparelho físico.
+Resultado: **PARCIAL** — atualização e início do Monitor confirmados por comando;
+conferência visual dos dados, TalkBack e cenários funcionais ainda pendentes.
 
 Registrar fatos estabelecidos, limitações e itens não observados no relatório do
 monitor. Se um evento não ocorrer naturalmente, deixá-lo pendente; não criar

@@ -9,8 +9,9 @@ backend ou internet. Não é um produto oficial do banco.
 histórico paginado, pendências e ajustes detalhados. A integração automatizada
 da Tarefa 9 passou em 112 testes JVM e 144 instrumentados, com lint sem erros.
 Leitura/foco reais do TalkBack e atualização física ainda pendentes.
-O S23 continua com a versão diagnóstica anterior; não instalar o novo APK sem
-nova autorização. Evidências atuais em
+O S23 foi atualizado para 1.1/código 2 com nova autorização; a validação visual
+e funcional permanece assistida e ainda não está concluída. Qualquer nova
+instalação/alteração física exige autorização. Evidências atuais em
 [`docs/testing/monitor-local-results.md`](docs/testing/monitor-local-results.md).
 
 ## Como funciona
