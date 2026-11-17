@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import br.com.c6tag.diagnostico.R
@@ -84,7 +85,21 @@ internal fun MonitorRoot(
                     NavigationBarItem(
                         selected = selected == index,
                         onClick = { selected = index },
-                        icon = { Text(listOf("◉", "≡", "⚙")[index]) },
+                        icon = {
+                            Icon(
+                                painter = painterResource(
+                                    listOf(
+                                        R.drawable.ic_monitor_overview,
+                                        R.drawable.ic_monitor_history,
+                                        R.drawable.ic_monitor_settings,
+                                    )[index],
+                                ),
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp).testTag(
+                                    listOf("tab-icon-overview", "tab-icon-history", "tab-icon-settings")[index],
+                                ),
+                            )
+                        },
                         label = { Text(stringResource(label)) },
                         modifier = Modifier.testTag(listOf("tab-overview", "tab-history", "tab-settings")[index]),
                     )
