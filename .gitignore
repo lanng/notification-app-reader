@@ -1,0 +1,38 @@
+.gradle/
+.kotlin/
+.idea/
+.worktrees/
+.superpowers/
+**/build/
+local.properties
+*.iml
+*.apk
+*.aab
+*.jks
+*.keystore
+*.hprof
+.env
+.env.*
+
+# Local Gradle property-test caches, not project source.
+/appbuildtask7-property-fixture-*/
+/UsersVictorAppDataLocalTempnotification-app-task7-properties-*/
+
+# Exported or diagnostic data may contain personal information.
+/exports/
+/exportacoes/
+/exportações/
+/dumps/
+**/exports/
+**/exportacoes/
+**/exportações/
+**/dumps/
+**/dados-pessoais/
+**/dados_pessoais/
+**/dados pessoais/
+**/personal-data/
+**/*.notification-dump
+*.log
+*.db
+*.db-shm
+*.db-wal
