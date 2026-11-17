@@ -13,7 +13,8 @@
 **Status:** plano concluído e aprovado em revisão independente após tornar
 obrigatório o backfill de identidades v1 e o teste do primeiro aviso direto.
 Nenhum bloqueio ou recomendação remanescente. Usuário escolheu execução direta
-com checkpoints. Tarefas 1–7 concluídas e revisadas; próxima: Tarefa 8.
+com checkpoints. Tarefas 1–8 concluídas e revisadas; Tarefa 9 com verificação
+técnica aprovada, ainda pendente de leitura/foco manuais do TalkBack.
 
 **Atualização de autorização:** após o checkpoint T7, o usuário autorizou
 subagents de implementação, com conferência pelo agente principal, inicialização
@@ -573,54 +574,63 @@ Checkpoint: fluxo principal completo, histórico e ajustes detalhados na tarefa 
 
 ## Tarefa 8 — Histórico, pendências, ajustes e diagnóstico
 
-**Status:** em andamento, com implementação delegada e revisão obrigatória.
-Tema persistido e link nativo de avisos já integrados
-na Tarefa 7; reaproveitar e ampliar as verificações, sem reimplementar esses fluxos.
+**Status:** concluída, com implementação delegada e revisões spec/qualidade
+aprovadas após correções de evidência. Verificação independente: 112 JVM e
+144 instrumentados aprovados, build/APKs/lint exit 0, lint 0 erros/8 avisos.
+Tema e link nativo da Tarefa 7 reaproveitados. Capturas somente sintéticas;
+nenhuma atualização física autorizada ou realizada.
 
 **Create:** `MAIN/ui/monitor/{FinancialHistoryScreen,PendingReviewScreen,
 MonitorSettingsScreen}.kt`.
 **Modify:** `MonitorRoot.kt`, `MonitorViewModel.kt`, strings.
 **Tests:** ampliar `ANDROID/ui/monitor/{MonitorScreensTest,MonitorViewModelTest}.kt`.
 
-- [ ] 1. Escrever RED para histórico paginado, filtros e referência diferenciada
+- [x] 1. Escrever RED para histórico paginado, filtros e referência diferenciada
   de receita; não listar propagandas ou resumos como dinheiro.
-- [ ] 2. Implementar detalhe financeiro e pendências com evidência mínima,
+- [x] 2. Implementar detalhe financeiro e pendências com evidência mínima,
   motivo e confirmação “nova” versus “já incluída/não contar”.
-- [ ] 3. Testar toque duplo, estado antigo após nova correção, valor ilegível,
+- [x] 3. Testar toque duplo, estado antigo após nova correção, valor ilegível,
   observação bruta removida e retorno ao saldo com decisão persistida.
-- [ ] 4. Implementar limite e escolhas de repetição 15/30/60 e pausa
+- [x] 4. Implementar limite e escolhas de repetição 15/30/60 e pausa
   15/30/60/120 min; impedir valores não suportados ou entrada inválida.
-- [ ] 5. Implementar tema local Sistema/Claro/Escuro e persistência. As preferências
+- [x] 5. Implementar tema local Sistema/Claro/Escuro e persistência. As preferências
   do aparelho não exigem conta nem se propagam remotamente.
-- [ ] 6. Linkar som/canal às configurações do Android, com falha de abertura
+- [x] 6. Linkar som/canal às configurações do Android, com falha de abertura
   separada da capacidade de notificar e da autorização de captura.
-- [ ] 7. Conservar diagnóstico, exportação sensível e limpeza, rotulada para
+- [x] 7. Conservar diagnóstico, exportação sensível e limpeza, rotulada para
   deixar explícito que não apaga o acompanhamento financeiro.
-- [ ] 8. Testar navegação/voltar/rotação, paginação concorrente, novas entradas,
+- [x] 8. Testar navegação/voltar/rotação, paginação concorrente, novas entradas,
   filtros, pending/clear/exports e ausência de informações pessoais desnecessárias.
-- [ ] 9. Rodar suites completas e registrar screenshots apenas sintéticas.
+- [x] 9. Rodar suites completas e registrar screenshots apenas sintéticas.
 
 Checkpoint: todas as telas aprovadas disponíveis, sem implementar fase remota.
 
 ## Tarefa 9 — Integração final, acessibilidade e evidências
 
+**Status:** verificação técnica e revisão final de código aprovadas.
+112 JVM/144 instrumentados, zero falhas/erros/ignorados, lint 0 erros/8 avisos.
+Fonte 200%, restrições retrato/paisagem, alvos e contraste verificados de forma
+sintética. Leitura/foco reais do TalkBack permanecem pendentes; por isso a tarefa
+não está integralmente concluída nem autoriza instalação no S23.
+
 **Files:** `docs/testing/monitor-local-results.md`,
 `docs/testing/monitor-local-s23-checklist.md`, `README.md`, testes pertinentes.
 
-- [ ] 1. Rodar o comando completo de build/JVM/APKtest/lint. Conferir XMLs e
+- [x] 1. Rodar o comando completo de build/JVM/APKtest/lint. Conferir XMLs e
   contagens, sem assumir que os totais continuam 32/47.
-- [ ] 2. No AVD temporário read-only, executar a suíte instrumentada completa
+- [x] 2. No AVD temporário read-only, executar a suíte instrumentada completa
   e casos fim a fim: v1→v2, referência, dois débitos, crédito, pausa, pendência,
   correção e processo recriado. Nenhuma publicação falsa de C6 na produção.
-- [ ] 3. Provar invariantes no banco sintético: uma fonte aplicada uma vez,
+- [x] 3. Provar invariantes no banco sintético: uma fonte aplicada uma vez,
   saldo reconstituível pelo marco atual, pendência sem impacto, cleanup seguro.
 - [ ] 4. Conferir font scale até 200%, TalkBack, landscape, touch targets,
   contraste e ausência de corte/ações inacessíveis nos dois temas.
-- [ ] 5. Inspecionar manifest/permissões e APK empacotado, não só a fonte.
+  Parte automatizada aprovada; pendente verificação manual do TalkBack.
+- [x] 5. Inspecionar manifest/permissões e APK empacotado, não só a fonte.
   Confirmar backup e INTERNET ausente.
-- [ ] 6. Solicitar revisão final do código contra spec e plano com
+- [x] 6. Solicitar revisão final do código contra spec e plano com
   @requesting-code-review; corrigir bloqueios e repetir verificações.
-- [ ] 7. Documentar conhecidos/limitados/pendentes e instruções que distinguem
+- [x] 7. Documentar conhecidos/limitados/pendentes e instruções que distinguem
   saldo estimado, ciência, pausa e recuperação. Não prometer som/horário.
 
 ## Tarefa 10 — Atualização e validação assistida no S23

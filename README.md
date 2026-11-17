@@ -5,9 +5,10 @@ conta exclusiva para C6 Tag, usando notificações reconhecidas do C6.
 Não consulta o saldo no banco, não pede senha, não realiza recargas e não usa
 backend ou internet. Não é um produto oficial do banco.
 
-**Estado de desenvolvimento:** Tarefas 1–7 implementadas e revisadas; Tarefa 8
-(histórico completo, pendências e ajustes detalhados) em implementação.
-Integração/acessibilidade final e atualização física ainda pendentes.
+**Estado de desenvolvimento:** Tarefas 1–8 implementadas e revisadas, incluindo
+histórico paginado, pendências e ajustes detalhados. A integração automatizada
+da Tarefa 9 passou em 112 testes JVM e 144 instrumentados, com lint sem erros.
+Leitura/foco reais do TalkBack e atualização física ainda pendentes.
 O S23 continua com a versão diagnóstica anterior; não instalar o novo APK sem
 nova autorização. Evidências atuais em
 [`docs/testing/monitor-local-results.md`](docs/testing/monitor-local-results.md).

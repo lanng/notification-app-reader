@@ -197,7 +197,13 @@ Tarefa 7 concluída e aprovada em revalidação independente após correções d
 entrada negativa e cancelamento expirado: temas, abas, referência, visão geral e
 permissão em contexto integrados. 112 JVM/126 instrumentados aprovados,
 lint 0 erros/8 avisos. Capturas sintéticas nos dois temas conferidas; AVD encerrado.
-Próxima: Tarefa 8, histórico paginado, pendências e ajustes detalhados.
+Tarefa 8 concluída por implementador delegado, com conferência do agente
+principal e revisões independentes spec/qualidade aprovadas. Histórico paginado,
+pendências, ajustes e diagnóstico integrados. Verificação final: 112 JVM e
+144 instrumentados aprovados, lint 0 erros/8 avisos.
+Tarefa 9: integração técnica, evidências, auditoria do APK e revisão de código
+aprovadas; leitura/foco reais do TalkBack ainda pendentes. Tarefa 10 continua
+dependente de nova autorização explícita para atualizar o S23.
 
 - [x] Tarefa 1: baseline, WorkManager e infraestrutura.
 - [x] Tarefa 2: regras financeiras e conferência.
@@ -206,6 +212,6 @@ Próxima: Tarefa 8, histórico paginado, pendências e ajustes detalhados.
 - [x] Tarefa 5: comandos, captura e recuperação.
 - [x] Tarefa 6: notificações Android e WorkManager.
 - [x] Tarefa 7: temas, navegação, configuração e visão geral.
-- [ ] Tarefa 8: histórico, pendências, ajustes e diagnóstico.
-- [ ] Tarefa 9: integração, acessibilidade e revisão final.
+- [x] Tarefa 8: histórico, pendências, ajustes e diagnóstico.
+- [ ] Tarefa 9: integração/revisão aprovadas; TalkBack manual pendente.
 - [ ] Tarefa 10: atualização e validação consentida no S23.
