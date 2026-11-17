@@ -33,7 +33,7 @@
     <string name="retry_history">Tentar carregar novamente</string>
     <string name="clear_records">Limpar registros</string>
     <string name="clear_confirmation_title">Apagar registros internos?</string>
-    <string name="clear_confirmation_message">Os registros internos serão apagados. Exportações já existentes não serão apagadas; eventos novos ainda podem chegar.</string>
+    <string name="clear_confirmation_message">Apaga somente os registros de diagnóstico deste aparelho; não apaga saldos, referências nem movimentações financeiras. Exportações já existentes não serão apagadas; novos eventos ainda podem chegar.</string>
     <string name="export_records">Exportar diagnóstico</string>
     <string name="export_confirmation_title">Revisar antes de exportar?</string>
     <string name="export_confirmation_message">O arquivo pode conter nomes, CPF parcial, locais e o conteúdo de notificações. Revise e oculte dados pessoais antes de compartilhar; o app não anonimiza o arquivo. Um destino em nuvem pode sincronizar o arquivo mesmo que este app não tenha acesso à internet.</string>

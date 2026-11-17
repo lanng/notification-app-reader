@@ -72,6 +72,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         noticePermissionRequested = savedInstanceState?.getBoolean("noticePermissionRequested") ?: false
         setContent {
+            val appContentResolver = applicationContext.contentResolver
+            val createDocumentLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.CreateDocument("application/json"),
+            ) { uri: Uri? ->
+                if (uri == null) {
+                    diagnosticViewModel.onExportDestinationCancelled()
+                } else {
+                    diagnosticViewModel.exportToDestination {
+                        appContentResolver.openOutputStream(uri, "w")
+                    }
+                }
+            }
             val monitorState by monitorViewModel.uiState.collectAsStateWithLifecycle()
             MonitorTheme(preference = monitorState.overview.settings.theme) {
                 MonitorRoot(
@@ -80,9 +92,34 @@ class MainActivity : ComponentActivity() {
                         onReference = monitorViewModel::beginReference,
                         onAcknowledge = monitorViewModel::acknowledge,
                         onResume = monitorViewModel::resume,
-                        onOpenCaptureSettings = ::openNotificationListenerSettings,
+                        onOpenCaptureSettings = {
+                            monitorViewModel.clearCaptureSettingsError()
+                            openNotificationListenerSettings()
+                        },
+                        onHistory = monitorViewModel::retryHistory,
                         onRetry = monitorViewModel::refresh,
                         onTheme = monitorViewModel::changeTheme,
+                        onHistoryFilter = monitorViewModel::selectHistoryFilter,
+                        onOpenFinancialEntry = monitorViewModel::openFinancialEntry,
+                        onCloseFinancialEntry = monitorViewModel::closeFinancialEntry,
+                        onLoadMoreHistory = monitorViewModel::loadMoreHistory,
+                        onRetryHistory = monitorViewModel::retryHistory,
+                        onPendingReview = monitorViewModel::loadPending,
+                        onLoadMorePending = monitorViewModel::loadMorePending,
+                        onRetryPending = monitorViewModel::retryPending,
+                        onOpenPending = monitorViewModel::openPending,
+                        onClosePending = monitorViewModel::closePending,
+                        onRequestPendingDecision = monitorViewModel::requestPendingDecision,
+                        onDismissPendingDecision = monitorViewModel::dismissPendingDecision,
+                        onConfirmPendingDecision = monitorViewModel::confirmPendingDecision,
+                        onSettingsLimit = monitorViewModel::editSettingsLimit,
+                        onSettingsRepeat = monitorViewModel::editSettingsRepeat,
+                        onSettingsPause = monitorViewModel::editSettingsPause,
+                        onSaveSettings = monitorViewModel::saveSettings,
+                        onOpenNoticeSettings = {
+                            monitorViewModel.clearNoticeSettingsError()
+                            openNoticeChannelSettings()
+                        },
                     ),
                     referenceActions = ReferenceActions(
                         onBalance = monitorViewModel::updateBalance,
@@ -93,28 +130,23 @@ class MainActivity : ComponentActivity() {
                         onCancel = monitorViewModel::cancelReference,
                     ),
                     onEnableNotices = ::enableNotices,
-                    diagnostic = { DiagnosticContent() },
+                    diagnostic = {
+                        DiagnosticContent { filename ->
+                            try {
+                                createDocumentLauncher.launch(filename)
+                            } catch (_: RuntimeException) {
+                                diagnosticViewModel.reportExportLaunchFailure()
+                            }
+                        }
+                    },
                 )
             }
         }
     }
 
     @Composable
-    private fun DiagnosticContent() {
+    private fun DiagnosticContent(onLaunchExport: (String) -> Unit) {
         val state by diagnosticViewModel.uiState.collectAsStateWithLifecycle()
-        val appContentResolver = applicationContext.contentResolver
-        val createDocumentLauncher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.CreateDocument("application/json"),
-        ) { uri: Uri? ->
-            if (uri == null) {
-                diagnosticViewModel.onExportDestinationCancelled()
-            } else {
-                // The callback retains only the application resolver and immutable SAF Uri.
-                diagnosticViewModel.exportToDestination {
-                    appContentResolver.openOutputStream(uri, "w")
-                }
-            }
-        }
         DiagnosticScreen(
             state = state,
             actions = DiagnosticScreenActions(
@@ -130,11 +162,7 @@ class MainActivity : ComponentActivity() {
                 onCancelExport = diagnosticViewModel::cancelExport,
                 onConfirmExport = {
                     if (diagnosticViewModel.confirmExport()) {
-                        try {
-                            createDocumentLauncher.launch(diagnosticFilename())
-                        } catch (_: RuntimeException) {
-                            diagnosticViewModel.reportExportLaunchFailure()
-                        }
+                        onLaunchExport(diagnosticFilename())
                     }
                 },
             ),
@@ -190,7 +218,18 @@ class MainActivity : ComponentActivity() {
                 })
             }
         } catch (_: RuntimeException) {
-            monitorViewModel.reportPlatformFailure()
+            monitorViewModel.reportNoticeSettingsFailure()
+        }
+    }
+
+    private fun openNoticeChannelSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, MonitorNotifier.CHANNEL_ID)
+            })
+        } catch (_: RuntimeException) {
+            monitorViewModel.reportNoticeSettingsFailure()
         }
     }
 
@@ -211,10 +250,10 @@ class MainActivity : ComponentActivity() {
             diagnosticViewModel.reportSettingsLaunchSuccess()
         } catch (_: ActivityNotFoundException) {
             diagnosticViewModel.reportSettingsLaunchFailure()
-            monitorViewModel.reportPlatformFailure()
+            monitorViewModel.reportCaptureSettingsFailure()
         } catch (_: SecurityException) {
             diagnosticViewModel.reportSettingsLaunchFailure()
-            monitorViewModel.reportPlatformFailure()
+            monitorViewModel.reportCaptureSettingsFailure()
         }
     }
 
