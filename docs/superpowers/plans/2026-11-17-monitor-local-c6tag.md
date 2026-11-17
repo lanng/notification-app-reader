@@ -13,8 +13,9 @@
 **Status:** plano concluído e aprovado em revisão independente após tornar
 obrigatório o backfill de identidades v1 e o teste do primeiro aviso direto.
 Nenhum bloqueio ou recomendação remanescente. Usuário escolheu execução direta
-com checkpoints. Tarefas 1–8 concluídas e revisadas; Tarefa 9 com verificação
-técnica aprovada, ainda pendente de leitura/foco manuais do TalkBack.
+com checkpoints. Tarefas 1–9 concluídas no escopo documentado; TalkBack
+confirmado por relato no percurso dirigido. Tarefa 10: sessão assistida encerrada
+com evidência parcial e cenários físicos residuais explicitamente não observados.
 
 **Atualização de autorização:** após o checkpoint T7, o usuário autorizou
 subagents de implementação, com conferência pelo agente principal, inicialização
@@ -610,8 +611,9 @@ Checkpoint: todas as telas aprovadas disponíveis, sem implementar fase remota.
 **Status:** verificação técnica e revisão final de código aprovadas.
 112 JVM/144 instrumentados, zero falhas/erros/ignorados, lint 0 erros/8 avisos.
 Fonte 200%, restrições retrato/paisagem, alvos e contraste verificados de forma
-sintética. Leitura/foco reais do TalkBack permanecem pendentes; por isso a tarefa
-não está integralmente concluída nem autoriza instalação no S23.
+sintética. Usuário confirmou TalkBack funcional, incluindo botões, após orientação
+de leitura/foco na Visão geral. Checagem dirigida concluída, não uma auditoria
+exaustiva de todas as telas/temas. Atualização física recebeu autorização separada.
 
 **Files:** `docs/testing/monitor-local-results.md`,
 `docs/testing/monitor-local-s23-checklist.md`, `README.md`, testes pertinentes.
@@ -623,9 +625,10 @@ não está integralmente concluída nem autoriza instalação no S23.
   correção e processo recriado. Nenhuma publicação falsa de C6 na produção.
 - [x] 3. Provar invariantes no banco sintético: uma fonte aplicada uma vez,
   saldo reconstituível pelo marco atual, pendência sem impacto, cleanup seguro.
-- [ ] 4. Conferir font scale até 200%, TalkBack, landscape, touch targets,
+- [x] 4. Conferir font scale até 200%, TalkBack, landscape, touch targets,
   contraste e ausência de corte/ações inacessíveis nos dois temas.
-  Parte automatizada aprovada; pendente verificação manual do TalkBack.
+  Fonte/layout/alvos/temas com evidência sintética aprovada; TalkBack confirmado
+  pelo usuário no percurso dirigido da Visão geral, sem extrapolar a todas as telas.
 - [x] 5. Inspecionar manifest/permissões e APK empacotado, não só a fonte.
   Confirmar backup e INTERNET ausente.
 - [x] 6. Solicitar revisão final do código contra spec e plano com
@@ -635,12 +638,13 @@ não está integralmente concluída nem autoriza instalação no S23.
 
 ## Tarefa 10 — Atualização e validação assistida no S23
 
-**Status:** sessão iniciada com nova autorização explícita (“Conectado, sim
-autorizo”). Metadados e artefato reconfirmados; atualização aplicada com
-`install -r --user 0` e versionCode 2 confirmado. Monitor iniciado com Status ok;
-conferência visual do histórico e cenários funcionais ainda pendentes.
-TalkBack manual da T9 permanece aberto e será conferido de forma assistida,
-sem considerar os testes semânticos uma validação de fala/foco.
+**Status:** sessão encerrada com evidência parcial, não validação física integral.
+Autorização explícita recebida (“Conectado, sim autorizo”); atualização aplicada
+com `install -r --user 0` e versionCode 2 confirmado. Usuário confirmou registros
+anteriores, estimativa, débitos naturais, avisos permitidos, primeiro alerta,
+estados de pausa/retomada, restauração do limite e TalkBack no percurso dirigido.
+Crédito natural, prazos de lembretes e ensaios de interrupção não observados;
+permanecem residuais, sem exigir transações nem novas mudanças no telefone.
 
 **Files:** checklist físico e resultados do monitor, `README.md`.
 
@@ -650,21 +654,29 @@ sem considerar os testes semânticos uma validação de fala/foco.
   modelo/API/pacote por consultas de metadados; não gravar serial em documentos.
 - [x] 3. Verificar BuildConfig `com.c6bank.app`, build e SHA do APK. Instalar
   com `adb -s ... install -r` sem desinstalar, limpar dados ou puxar banco privado.
-- [ ] 4. Conferir registros anteriores e orientar saldo atual/limite/configuração.
+- [x] 4. Conferir registros anteriores e orientar saldo atual/limite/configuração.
   Acesso à captura e POST_NOTIFICATIONS são decisões manuais separadas.
+  Usuário confirmou registros anteriores, referência já configurada, estimativa
+  correta e débitos naturais reconhecidos; confirmou separadamente avisos
+  permitidos/configurados manualmente e primeiro alerta recebido.
 - [ ] 5. Aguardar crédito/débito naturais para conferir, sem exigir Pix.
   Para teste de alerta sem transação, o usuário pode optar por elevar
   temporariamente o limite acima da estimativa atual e restaurá-lo depois.
   Não informar saldo falso nem alterar configurações sem consentimento.
-- [ ] 6. Testar ciência, retomada, recuperação e permissão/canal quando o usuário
+  Débitos naturais e alerta por limite relatados; crédito natural não observado.
+- [x] 6. Testar ciência, retomada, recuperação e permissão/canal quando o usuário
   autorizar. Testes de tempo podem permanecer pendentes; não acelerar produção
   para burlar o intervalo mínimo.
+  Estados visuais de pausa/retomada e saída de saldo baixo pela restauração do
+  limite confirmados por relato. Não comprova supressão temporal, som ou crédito.
 - [ ] 7. Tela bloqueada, reboot, revogar/restaurar e force-stop são ensaios
   separados consentidos; não mudar bateria/DND do aparelho automaticamente.
+  Não executados nesta sessão; continuam como ensaios residuais consentidos.
 - [ ] 8. Registrar previsão versus observação de cada lembrete, sem generalizar
   pontualidade de um caso. Não executar instrumentados contra o banco instalado
   do usuário e não usar dumpsys de notificações ou exports brutos para diagnóstico.
-- [ ] 9. Encerrar com resultado estabelecido/limitado/refutado, APK e pendências,
+  Tempos não medidos; tabela preserva explicitamente os eventos não observados.
+- [x] 9. Encerrar com resultado estabelecido/limitado/refutado, APK e pendências,
   sem iniciar comunicação remota ou declarar saldo bancário garantido.
 
 ## 6. Comandos e operação segura dos testes

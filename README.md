@@ -8,10 +8,13 @@ backend ou internet. Não é um produto oficial do banco.
 **Estado de desenvolvimento:** Tarefas 1–8 implementadas e revisadas, incluindo
 histórico paginado, pendências e ajustes detalhados. A integração automatizada
 da Tarefa 9 passou em 112 testes JVM e 144 instrumentados, com lint sem erros.
-Leitura/foco reais do TalkBack e atualização física ainda pendentes.
-O S23 foi atualizado para 1.1/código 2 com nova autorização; a validação visual
-e funcional permanece assistida e ainda não está concluída. Qualquer nova
-instalação/alteração física exige autorização. Evidências atuais em
+TalkBack confirmado pelo usuário no percurso orientado da Visão geral.
+O S23 foi atualizado para 1.1/código 2 com autorização, e a sessão assistida foi
+encerrada com evidência parcial: registros anteriores, estimativa, débitos naturais,
+primeiro alerta, estados de pausa/retomada e restauração do limite confirmados
+por relato. Crédito natural, entrega temporal dos lembretes e ensaios de
+interrupção continuam não observados; não há validação física integral.
+Qualquer nova instalação/alteração física exige autorização. Evidências atuais em
 [`docs/testing/monitor-local-results.md`](docs/testing/monitor-local-results.md).
 
 ## Como funciona

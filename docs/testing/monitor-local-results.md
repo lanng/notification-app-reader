@@ -3,9 +3,19 @@
 ## Estado
 
 Execução com subagents autorizada após a T7. Tarefas 1–8 concluídas e revisadas.
-Tarefa 9: integração técnica aprovada; leitura/foco manuais do TalkBack pendentes.
-Tarefa 10: após nova autorização, S23 atualizado para 1.1/código 2. Conferência
-visual e cenários reais pendentes. Nenhuma permissão física alterada por comando.
+Tarefa 9: integração técnica e checagem dirigida de TalkBack concluídas, esta
+confirmada por relato do usuário, sem auditoria exaustiva de telas/temas.
+Tarefa 10: S23 atualizado para 1.1/código 2 com autorização; sessão assistida
+encerrada com evidência parcial e cenários residuais explícitos no fechamento.
+Nenhuma permissão física alterada por comando.
+
+**Visual follow-up:** após a checagem funcional, usuário apontou ícones inferiores
+pequenos e aprovou conceitualmente trocá-los por vetores de 28 dp, preservando
+nomes/cores/alvos. Causa conferida em `MonitorRoot.kt`: ícones atuais são `Text`
+com caracteres Unicode. Especificação em
+`docs/superpowers/specs/2026-11-17-bottom-navigation-icons-design.md`;
+revisão e aprovação do documento precedem implementação. Nenhuma troca de ícone
+ou nova instalação foi feita neste checkpoint.
 
 ## Baseline — 2026-11-17
 
@@ -755,3 +765,97 @@ conferida pelo usuário, captura completa, som ou alertas físicos.
 Próxima observação assistida: usuário confere a interface e os registros antigos
 em Ajustes → Diagnóstico técnico, sem limpar/exportar ou enviar conteúdo privado.
 Depois, configurar referência local e conferir TalkBack e fluxos naturais.
+
+Usuário respondeu “sim” à conferência dos registros antigos em Ajustes →
+Diagnóstico técnico após a atualização. Evidência relatada de histórico anterior
+acessível, sem extração, exportação ou contagem independente de dados privados.
+Configuração do saldo de referência, avisos e TalkBack ainda pendentes.
+
+Usuário esclareceu que já havia configurado a referência ao abrir o app, confirmou
+que a estimativa aparece corretamente e relatou débitos reconhecidos de
+notificações recebidas naturalmente nesse intervalo. Não orientar nova referência
+desnecessária: ela substituiria o marco já configurado. Nenhum valor, conteúdo
+bancário, comprovante ou credencial foi solicitado/coletado; não houve transação
+exigida para o teste. Relato corrobora uso real de referência/captura/reconhecimento
+de débitos, mas não comprova captura integral ou cálculo bancário auditado.
+Permissão de avisos, ciência/pausa, recuperação e TalkBack seguem em conferência.
+
+Na conferência separada da permissão de avisos, usuário confirmou que estão
+permitidos e que já concedeu a permissão e fez a configuração manualmente.
+Não foram executados comandos de permissão/configuração no aparelho.
+Isso não comprova aviso efetivamente exibido, som, repetição ou ciência/pausa.
+Próximo ensaio proposto: elevar temporariamente o limite, sem mudar referência
+nem realizar transação, somente após consentimento específico; depois restaurar
+o limite original. Esse ensaio ainda não foi autorizado nem observado.
+
+Após a proposta de ensaio sem transação, usuário relatou: “Funcionou, ele
+notificou corretamente”. Registrado primeiro aviso local confirmado por relato
+no S23; não apenas uma solicitação de publicação aceita pelo sistema.
+Não foram informados som, horário/latência, condição de tela ou valor do limite;
+não inferir esses detalhes nem a restauração do limite original.
+Ciência/pausa, retomada e encerramento do ciclo ainda não observados.
+
+Após orientação para tocar em “Estou ciente · pausar por … min”, usuário respondeu
+“sim” à conferência de “Lembretes pausados”, fim previsto da pausa e saldo igual.
+Registrado estado visual de pausa e ausência de alteração do saldo por relato;
+não houve espera/medição da supressão de lembretes ou do término automático.
+Retomada manual e restauração do limite original seguem pendentes.
+
+Após orientação para “Retomar lembretes”, usuário confirmou que o estado
+“Lembretes pausados” desapareceu e voltou “Saldo abaixo do limite”.
+Retomada visual confirmada por relato; não comprova prazo de próxima entrega
+nem ausência de rajadas ao longo do tempo. Restauração do limite original
+e encerramento do ciclo de teste ainda pendentes.
+
+Usuário confirmou a restauração do limite de atenção original e o desaparecimento
+de “Saldo abaixo do limite”, após orientação sem alterar a referência de saldo.
+Registrada saída visual da condição de teste por restauração de configuração;
+não confundir com recuperação por crédito natural, que continua não observada.
+Primeiro aviso, estado de ciência/pausa, retomada e retorno do limite estão
+confirmados por relato; prazos/supressão temporal e TalkBack seguem pendentes.
+
+Usuário autorizou ativar temporariamente o TalkBack para checagem assistida de
+leitura/foco. Ativação e desativação serão manuais, com orientação prévia dos
+gestos; nenhuma configuração de acessibilidade foi alterada por comando.
+Consentimento não é evidência de ativação nem de leitura/foco aprovados.
+
+### Fechamento da checagem dirigida e da sessão física
+
+Após orientação dos gestos de navegação, ativação/desativação manual e percurso
+da Visão geral (saldo estimado, botões e abas), usuário informou: “Certo, testei
+e esta funcional isso no talk back, botoes etc. Tudo certo”.
+Registrada aprovação por relato da checagem dirigida de TalkBack. Não inferir
+auditoria manual de todas as telas, temas ou fluxos de formulário a partir dela.
+Nenhum conteúdo bancário ou valor lido foi solicitado. Desativação posterior do
+TalkBack não foi confirmada; pode ser feita manualmente se usado só no ensaio.
+
+**Tarefa 9 encerrada no escopo documentado:** evidência técnica anterior e
+checagem manual dirigida complementares, sem substituir uma pela outra.
+**Tarefa 10: sessão encerrada com resultado parcial**, sem exigir eventos
+bancários ou ampliar consentimento para ensaios de interrupção.
+
+Estabelecido por comando: atualização preservando a instalação, versionCode 2
+e início da Activity. Confirmado por relato: registros anteriores acessíveis,
+referência configurada/estimativa correta, débitos naturais reconhecidos,
+avisos permitidos manualmente, primeiro aviso local, estados de ciência/pausa
+com saldo inalterado, retomada, restauração do limite e TalkBack dirigido.
+
+Limites/residuais: sem auditoria privada de aritmética ou captura integral,
+crédito natural, deduplicação física exaustiva, medição de repetição/fim de pausa,
+supressão temporal, som, segundo plano/tela bloqueada, reboot, revogação ou
+force-stop. Limpeza/exportação e todos os demais cenários não observados do
+checklist permanecem pendentes; não foram executados para completar a lista.
+Restauração do limite não equivale a recuperação por crédito bancário.
+
+Artefato instalado permanece versão 1.1/código 2, 12.973.580 bytes, SHA-256
+`1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
+As alterações deste fechamento são somente documentais. Preservar a branch
+`feat/monitor-history-and-settings`, sem merge/push ou novas ações físicas
+automáticas; comunicação remota continua fora desta versão.
+
+Verificação local deste fechamento documental: comando completo
+JVM/build/APKtest/lint aceito com exit 0, `BUILD SUCCESSFUL`, 84 tarefas
+(1 executada/83 up-to-date). Relatórios JVM em cache continuam com 112 testes,
+zero falhas/erros/ignorados; lint 0 erros/fatais e 8 avisos.
+Não houve nova execução instrumentada nem conexão ADB nesta etapa.
+Tamanho e SHA-256 do APK conferidos e inalterados em relação ao instalado.

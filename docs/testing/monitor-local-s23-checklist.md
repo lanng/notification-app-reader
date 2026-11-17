@@ -2,10 +2,11 @@
 
 ## Estado
 
-**Atualização aplicada; validação visual em andamento.** Após solicitar conexão e
+**Sessão assistida encerrada com evidência parcial.** Após solicitar conexão e
 autorização para atualizar preservando dados, o usuário respondeu:
 “Conectado, sim autorizo”. Verificações sintéticas e revisão final aprovadas;
-TalkBack manual permanece pendente e será conferido de forma assistida.
+TalkBack confirmado por relato no percurso dirigido da Visão geral. Cenários
+físicos não observados permanecem explicitamente pendentes abaixo.
 
 Modelo/API anteriormente observados: SM-S911B, Android 17/API 37.
 Confirmá-los novamente somente após consentimento; não registrar serial.
@@ -37,7 +38,7 @@ Nenhum resultado esperado abaixo está validado apenas por constar neste arquivo
 - [x] Manifesto/APK auditados: sem INTERNET, alarme exato, DND ou full-screen.
 - [x] SHA-256 e data do APK final registrados abaixo, antes da instalação.
 - [x] Atualização por `adb -s SERIAL install -r ...` sem desinstalar/limpar dados.
-- [ ] Histórico de observações anterior ainda disponível após atualização.
+- [x] Histórico de observações anterior disponível após atualização, conforme relato do usuário.
 
 SHA-256 do APK:
 `1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
@@ -46,8 +47,9 @@ Data/build/commit: 2026-11-17, versão 1.1/código 2, checkpoint `2cfc926`
 Consentimento: recebido nesta sessão. `install -r --user 0` retornou `Success`;
 versionCode 2 confirmado por metadados. Somente o Monitor foi iniciado,
 com `am start -W --user 0`, `Status: ok`.
-Histórico preservado visualmente e funcionamento real ainda aguardam o usuário;
-sucesso da atualização não prova migração/captura/alerta físico por si só.
+Usuário confirmou os registros anteriores acessíveis, a estimativa configurada,
+débitos naturais reconhecidos e avisos permitidos/configurados manualmente.
+Esses relatos não comprovam captura integral, som ou entrega física de alertas.
 
 Metadados reconfirmados: um S23 SM-S911B, Android 17/API 37, usuário principal 0.
 Origem `com.c6bank.app` instalada; app existente `br.com.c6tag.diagnostico`
@@ -68,11 +70,11 @@ Os comandos de instalação documentados no README não são autorização para 
 
 | Cenário | Ação consentida | Esperado | Observado | Status |
 |---|---|---|---|---|
-| Migração | Abrir o app atualizado e consultar diagnóstico existente. | Registros antigos preservados; sem lançamentos financeiros retroativos. | Não observado. | PENDENTE |
-| Primeira referência | Usuário consulta saldo no C6 e informa saldo/limite com confirmação. | Referência substitui estimativa; passado não reaplicado, sem “recarga”. | Não observado. | PENDENTE |
+| Migração | Abrir o app atualizado e consultar diagnóstico existente. | Registros antigos preservados; sem lançamentos financeiros retroativos. | Usuário confirmou que os registros antigos aparecem em Ajustes → Diagnóstico técnico. Não houve extração ou contagem independente dos dados. | PARCIAL |
+| Primeira referência | Usuário consulta saldo no C6 e informa saldo/limite com confirmação. | Referência substitui estimativa; passado não reaplicado, sem “recarga”. | Usuário informou que configurou o saldo ao abrir o app e confirmou que a estimativa aparece corretamente. Não foi solicitado o valor. | RELATADO |
 | Avisos concorrentes | Se chegarem naturalmente durante a conferência, revisar após confirmar. | Candidatos continuam identificáveis/pendentes, sem inclusão silenciosa. | Não observado. | PENDENTE |
-| Captura e avisos | Conferir cada acesso separadamente, com escolhas do usuário. | Autorização/conexão/capacidade distintas; recusa não bloqueia saldo/histórico. | Não observado. | PENDENTE |
-| Débito natural | Comparar um aviso novo que ocorrer naturalmente. | Uma aplicação elegível ou pendência explícita; nunca supor identidade bancária perfeita. | Não observado. | PENDENTE |
+| Captura e avisos | Conferir cada acesso separadamente, com escolhas do usuário. | Autorização/conexão/capacidade distintas; recusa não bloqueia saldo/histórico. | Usuário relatou débitos naturais reconhecidos e confirmou separadamente que os avisos estão permitidos, com permissão e configuração feitas manualmente. Recusa, som e entrega de alerta não observados. | PARCIAL |
+| Débito natural | Comparar um aviso novo que ocorrer naturalmente. | Uma aplicação elegível ou pendência explícita; nunca supor identidade bancária perfeita. | Usuário relatou débitos reconhecidos de notificações recebidas naturalmente após configurar a referência. Sem conteúdo ou valores coletados e sem auditoria aritmética independente. | PARCIAL |
 | Crédito natural | Comparar um crédito recebido por iniciativa externa ao teste. | Uma aplicação; crédito insuficiente não encerra ciclo baixo nem pausa vigente. | Não observado. | PENDENTE |
 | Repetição natural | Se um aviso for atualizado/reapresentado naturalmente, comparar o histórico. | Sem novo impacto automático conhecido; ambiguidade vira pendência. | Não observado. | PENDENTE |
 | Correção | Usuário confere saldo e confirma novo valor. | Novo marco, valor substituído, histórico mantido e ajuste sem receita. | Não observado. | PENDENTE |
@@ -88,12 +90,13 @@ Se o usuário desejar, pode elevar **temporariamente o limite de atenção** aci
 da estimativa atual e restaurá-lo depois. Não informar saldo falso nem alterar o
 limite automaticamente. O app deve continuar mostrando que o valor é estimado.
 
-- [ ] Usuário escolheu esse ensaio e anotou o limite original.
-- [ ] Primeiro aviso local observado; distinguir solicitação aceita de som/visibilidade.
-- [ ] Ciência pausou os lembretes, sem mudar saldo ou encerrar o ciclo.
-- [ ] Retomada manual respeitou o ciclo/prazo atual, sem rajada de avisos.
-- [ ] Recuperação confiável ou restauração consentida do limite encerrou o ciclo.
-- [ ] Limite original restaurado pelo usuário.
+- [x] Usuário realizou o ensaio proposto e confirmou a restauração do limite original. Não foi informado se houve anotação prévia do limite.
+- [x] Primeiro aviso local relatado pelo usuário: “Funcionou, ele notificou corretamente”. Som, latência e condição de tela não informados.
+- [x] Após ciência, usuário confirmou “Lembretes pausados”, fim previsto da pausa e saldo inalterado. Supressão temporal e fim automático da pausa ainda não observados.
+- [x] Retomada manual: usuário confirmou que “Lembretes pausados” desapareceu e voltou “Saldo abaixo do limite”.
+- [ ] Prazo da retomada e ausência de rajada de avisos observados ao longo do tempo.
+- [x] Após restauração do limite original, usuário confirmou que “Saldo abaixo do limite” desapareceu. Evidência visual do encerramento da condição de teste, não de crédito bancário.
+- [x] Limite original restaurado pelo usuário, conforme confirmação após orientação.
 
 ### Medição temporal
 
@@ -108,7 +111,8 @@ Anotar cada ensaio individualmente; não generalizar pontualidade de um evento.
 
 ## Ensaios independentes e acessibilidade
 
-- [ ] Fonte até 200%, TalkBack, foco/leitura e alvos de toque em ambos os temas.
+- [x] TalkBack no percurso dirigido da Visão geral: usuário confirmou funcionamento, incluindo botões, após orientação de leitura/foco e abas.
+- [ ] Checagem física ampliada de fonte até 200%, foco/leitura e alvos em todas as telas e ambos os temas; cobertura sintética registrada separadamente.
 - [ ] Landscape e retorno à Activity sem perder formulário ou confirmar sozinho.
 - [ ] Canal silencioso/bloqueado ou avisos recusados, somente por escolha do usuário.
 - [ ] Revogar/restaurar captura: indicador de conferência sem recuperação fictícia.
@@ -120,7 +124,19 @@ Nada acima deve ser marcado como concluído sem observação real e consentida.
 ## Encerramento
 
 Resultado: **PARCIAL** — atualização e início do Monitor confirmados por comando;
-conferência visual dos dados, TalkBack e cenários funcionais ainda pendentes.
+usuário confirmou registros anteriores, referência configurada, estimativa correta,
+débitos naturais reconhecidos e avisos permitidos/configurados manualmente.
+Primeiro aviso local confirmado por relato; som e pontualidade não medidos.
+Estado de pausa, prazo exibido e saldo inalterado após ciência confirmados por relato.
+Retomada visual e saída da condição de saldo baixo ao restaurar o limite original
+confirmadas por relato. Prazos, supressão temporal, recuperação por crédito natural
+e demais cenários ainda pendentes. TalkBack aprovado por relato no percurso
+dirigido da Visão geral, sem inferir auditoria de todas as telas/temas.
+
+Usuário informou: “testei e esta funcional isso no talk back, botoes etc.
+Tudo certo”. Nenhum valor lido, conteúdo bancário ou gravação foi solicitado.
+Se ativado somente para o ensaio, o usuário pode desativar o TalkBack manualmente
+nas configurações; a desativação não foi confirmada nesta sessão.
 
 Registrar fatos estabelecidos, limitações e itens não observados no relatório do
 monitor. Se um evento não ocorrer naturalmente, deixá-lo pendente; não criar

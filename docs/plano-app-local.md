@@ -202,11 +202,14 @@ principal e revisões independentes spec/qualidade aprovadas. Histórico paginad
 pendências, ajustes e diagnóstico integrados. Verificação final: 112 JVM e
 144 instrumentados aprovados, lint 0 erros/8 avisos.
 Tarefa 9: integração técnica, evidências, auditoria do APK e revisão de código
-aprovadas; leitura/foco reais do TalkBack ainda pendentes. Tarefa 10 continua
-em validação assistida: usuário concedeu nova autorização, atualização
-`install -r --user 0` concluída e versionCode 2 confirmado; conferência visual,
-TalkBack e cenários reais ainda pendentes. Não houve limpeza ou concessão de
-permissão por comando.
+aprovadas; usuário confirmou TalkBack funcional no percurso orientado da Visão
+geral, incluindo botões. Isso não é auditoria exaustiva de todas as telas/temas.
+Tarefa 10: sessão assistida encerrada com resultado parcial. Atualização
+`install -r --user 0` e versionCode 2 confirmados; registros anteriores,
+estimativa, débitos naturais, primeiro aviso, estados de pausa/retomada e
+restauração do limite original confirmados por relato. Crédito natural,
+repetição temporal e ensaios de interrupção permanecem não observados.
+Não houve limpeza ou concessão de permissão por comando.
 
 - [x] Tarefa 1: baseline, WorkManager e infraestrutura.
 - [x] Tarefa 2: regras financeiras e conferência.
@@ -216,5 +219,5 @@ permissão por comando.
 - [x] Tarefa 6: notificações Android e WorkManager.
 - [x] Tarefa 7: temas, navegação, configuração e visão geral.
 - [x] Tarefa 8: histórico, pendências, ajustes e diagnóstico.
-- [ ] Tarefa 9: integração/revisão aprovadas; TalkBack manual pendente.
-- [ ] Tarefa 10: atualização e validação consentida no S23.
+- [x] Tarefa 9: integração/revisão e checagem dirigida de TalkBack, com escopo registrado.
+- [x] Tarefa 10: sessão consentida encerrada com evidência parcial e cenários residuais explícitos; não equivale a validação física integral.
