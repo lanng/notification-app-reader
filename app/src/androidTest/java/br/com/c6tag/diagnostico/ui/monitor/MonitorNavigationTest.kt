@@ -80,6 +80,80 @@ class MonitorNavigationTest {
         assertEquals(0, requests)
     }
 
+    @Test fun historyTabShowsFinancialFiltersInsteadOfAStaticPreview() {
+        compose.setContent {
+            MonitorTheme {
+                MonitorRoot(MonitorUiState(isLoading = false), MonitorActions(), ReferenceActions(),
+                    onEnableNotices = {}, diagnostic = {})
+            }
+        }
+        compose.onNodeWithTag("tab-history").performClick()
+        compose.onNodeWithText("Todas").assertIsDisplayed()
+        compose.onNodeWithText("Entradas").assertIsDisplayed()
+        compose.onNodeWithText("Saídas").assertIsDisplayed()
+        compose.onNodeWithTag("history-filter-adjustments").assertIsDisplayed()
+        compose.onNodeWithText("Prévia dos últimos três registros. Filtros, paginação e pendências serão integrados na próxima etapa.")
+            .assertDoesNotExist()
+    }
+
+    @Test fun settingsExposeOnlySupportedReminderIntervalsAndSeparatePlatformLinks() {
+        compose.setContent {
+            MonitorTheme {
+                MonitorRoot(
+                    MonitorUiState(isLoading = false, notices = NoticeAccess.SILENT),
+                    MonitorActions(), ReferenceActions(), onEnableNotices = {}, diagnostic = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("tab-settings").performClick()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-limit"))
+        compose.onNodeWithTag("settings-limit").assertIsDisplayed()
+        compose.onNodeWithTag("repeat-15").assertIsDisplayed()
+        compose.onNodeWithTag("repeat-30").assertIsDisplayed()
+        compose.onNodeWithTag("repeat-60").assertIsDisplayed()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("pause-120"))
+        compose.onNodeWithTag("pause-15").assertExists()
+        compose.onNodeWithTag("pause-30").assertExists()
+        compose.onNodeWithTag("pause-60").assertExists()
+        compose.onNodeWithTag("pause-120").assertIsDisplayed()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Abrir ajustes de avisos e som"))
+        compose.onNodeWithText("Abrir ajustes de avisos e som").assertExists()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Autorizar captura"))
+        compose.onNodeWithText("Autorizar captura").assertExists()
+    }
+
+    @Test fun financialHistoryDetailReturnsToItsFilteredList() {
+        val entry = FinancialEntry(15L, FinancialEntryKind.PIX_CREDIT, 1L, 8L, 2_500L, 87_220L, 3L, 8L)
+        val ui = mutableStateOf(MonitorUiState(
+            overview = MonitorOverview(
+                reference = BalanceReference(1L, 84_720L, 1L, 0L),
+                balanceCents = 84_720L,
+            ),
+            history = listOf(entry),
+            isLoading = false,
+            historyLoading = false,
+        ))
+        compose.setContent {
+            MonitorTheme {
+                MonitorRoot(
+                    ui.value,
+                    MonitorActions(
+                        onOpenFinancialEntry = { id ->
+                            ui.value = ui.value.copy(financialSelection = ui.value.history.single { it.id == id })
+                        },
+                        onCloseFinancialEntry = { ui.value = ui.value.copy(financialSelection = null) },
+                    ),
+                    ReferenceActions(), onEnableNotices = {}, diagnostic = {},
+                )
+            }
+        }
+        compose.onNodeWithTag("tab-history").performClick()
+        compose.onNodeWithTag("financial-row-15").performClick()
+        compose.onNodeWithTag("financial-history-detail").assertIsDisplayed()
+        compose.onNodeWithTag("close-financial-detail").performClick()
+        compose.onNodeWithTag("financial-history").assertIsDisplayed()
+    }
+
     @Test fun explicitExplanationPrecedesPlatformPermissionAndDismissalKeepsBalanceUsable() {
         var requests = 0
         compose.setContent {

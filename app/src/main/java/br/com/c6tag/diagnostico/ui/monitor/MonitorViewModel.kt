@@ -7,7 +7,14 @@ import br.com.c6tag.diagnostico.monitor.ConfirmReference
 import br.com.c6tag.diagnostico.monitor.MonitorResult
 import br.com.c6tag.diagnostico.monitor.RejectionCode
 import br.com.c6tag.diagnostico.monitor.ChangeSettings
+import br.com.c6tag.diagnostico.monitor.HistoryFilter
+import br.com.c6tag.diagnostico.monitor.MonitorSettings
+import br.com.c6tag.diagnostico.monitor.PendingChoice
+import br.com.c6tag.diagnostico.monitor.PendingMovement
+import br.com.c6tag.diagnostico.monitor.PendingStatus
+import br.com.c6tag.diagnostico.monitor.ResolvePending
 import br.com.c6tag.diagnostico.monitor.ThemePreference
+import br.com.c6tag.diagnostico.monitor.alerts.AlertSettings
 import br.com.c6tag.diagnostico.ui.AuthorizationStatus
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,6 +31,8 @@ internal class MonitorViewModel(
     val uiState = mutableUiState.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val operations = Mutex()
+    private var historyGeneration = 0L
+    private var pendingGeneration = 0L
 
     init {
         scope.launch { captureStatus.state.collect { capture -> mutableUiState.update { it.copy(capture = capture) } } }
@@ -49,8 +58,20 @@ internal class MonitorViewModel(
         mutableUiState.update { it.copy(authorization = authorization, notices = notices) }
     }
 
-    fun reportPlatformFailure() {
-        mutableUiState.update { it.copy(error = "Não foi possível abrir as configurações do Android.") }
+    fun reportCaptureSettingsFailure() {
+        mutableUiState.update { it.copy(captureSettingsError = "Não foi possível abrir as configurações de captura.") }
+    }
+
+    fun reportNoticeSettingsFailure() {
+        mutableUiState.update { it.copy(noticeSettingsError = "Não foi possível abrir as configurações de avisos.") }
+    }
+
+    fun clearNoticeSettingsError() {
+        mutableUiState.update { it.copy(noticeSettingsError = null) }
+    }
+
+    fun clearCaptureSettingsError() {
+        mutableUiState.update { it.copy(captureSettingsError = null) }
     }
 
     fun beginReference() = command {
@@ -133,6 +154,156 @@ internal class MonitorViewModel(
         coordinator.changeSettings(ChangeSettings(current.reference?.id, current.settings.copy(theme = theme), 0L))
     }
 
+    fun selectHistoryFilter(filter: HistoryFilter) {
+        if (mutableUiState.value.historyFilter == filter) return
+        mutableUiState.update {
+            it.copy(
+                historyFilter = filter,
+                history = emptyList(),
+                historyHasMore = false,
+                historyError = null,
+                financialSelection = null,
+            )
+        }
+        reloadHistory()
+    }
+
+    fun openFinancialEntry(id: Long) {
+        if (mutableUiState.value.isBusy) return
+        val entry = mutableUiState.value.history.firstOrNull { it.id == id } ?: return
+        mutableUiState.update { it.copy(financialSelection = entry) }
+    }
+
+    fun closeFinancialEntry() {
+        mutableUiState.update { it.copy(financialSelection = null) }
+    }
+
+    fun retryHistory() = reloadHistory()
+
+    fun loadMoreHistory() {
+        val current = mutableUiState.value
+        if (current.historyLoading || !current.historyHasMore || current.history.isEmpty()) return
+        val generation = historyGeneration
+        val filter = current.historyFilter
+        val beforeId = current.history.last().id
+        mutableUiState.update { it.copy(historyLoading = true, historyError = null) }
+        scope.launch {
+            operations.withLock { readHistoryPage(generation, filter, beforeId, append = true) }
+        }
+    }
+
+    fun loadPending() = reloadPending()
+
+    fun retryPending() = reloadPending()
+
+    fun loadMorePending() {
+        val current = mutableUiState.value
+        if (current.pendingLoading || !current.pendingHasMore || current.pending.isEmpty()) return
+        val generation = pendingGeneration
+        val beforeId = current.pending.last().id
+        mutableUiState.update { it.copy(pendingLoading = true, pendingError = null) }
+        scope.launch {
+            operations.withLock { readPendingPage(generation, beforeId, append = true) }
+        }
+    }
+
+    fun openPending(id: Long) {
+        if (mutableUiState.value.isBusy) return
+        val state = mutableUiState.value
+        val movement = state.pending.firstOrNull { it.id == id && it.status == PendingStatus.OPEN } ?: return
+        val expectedReferenceId = state.overview.reference?.id
+        mutableUiState.update {
+            it.copy(pendingSelection = PendingReviewSelection(
+                movement = movement,
+                expectedReferenceId = expectedReferenceId,
+                stale = movement.referenceId != expectedReferenceId,
+            ))
+        }
+    }
+
+    fun closePending() {
+        if (!mutableUiState.value.isBusy) mutableUiState.update { it.copy(pendingSelection = null) }
+    }
+
+    fun requestPendingDecision(choice: PendingChoice) {
+        if (mutableUiState.value.isBusy) return
+        mutableUiState.update { state ->
+            val selection = state.pendingSelection ?: return@update state
+            if (selection.stale || state.overview.referenceSession != null ||
+                selection.movement.status != PendingStatus.OPEN ||
+                (choice == PendingChoice.CONFIRM_NEW && !canConfirmNew(selection.movement)) ||
+                (choice == PendingChoice.CONFIRM_NEW && selection.expectedReferenceId == null)
+            ) return@update state
+            state.copy(pendingSelection = selection.copy(confirmation = choice))
+        }
+    }
+
+    fun dismissPendingDecision() {
+        if (!mutableUiState.value.isBusy) mutableUiState.update {
+            it.copy(pendingSelection = it.pendingSelection?.copy(confirmation = null))
+        }
+    }
+
+    fun confirmPendingDecision() {
+        val selection = mutableUiState.value.pendingSelection ?: return
+        val choice = selection.confirmation ?: return
+        if (mutableUiState.value.isBusy || selection.stale) return
+        val referenceId = selection.expectedReferenceId ?: return
+        if (choice == PendingChoice.CONFIRM_NEW && !canConfirmNew(selection.movement)) return
+        command {
+            val result = coordinator.resolvePending(ResolvePending(selection.movement.id, referenceId, choice))
+            if (result.rejection == null) {
+                mutableUiState.update { it.copy(pendingSelection = null) }
+            } else if (result.rejection == RejectionCode.STALE_REFERENCE) {
+                mutableUiState.update { state ->
+                    state.copy(pendingSelection = state.pendingSelection?.copy(confirmation = null, stale = true))
+                }
+            } else {
+                mutableUiState.update { state ->
+                    state.copy(pendingSelection = state.pendingSelection?.copy(confirmation = null))
+                }
+            }
+            result
+        }
+    }
+
+    fun editSettingsLimit(value: String) = editSettings { it.copy(limit = value, invalid = false) }
+
+    fun editSettingsRepeat(minutes: Int) {
+        if (minutes !in SUPPORTED_REPEAT_MINUTES || mutableUiState.value.isBusy) return
+        editSettings { it.copy(repeatMinutes = minutes, invalid = false) }
+    }
+
+    fun editSettingsPause(minutes: Int) {
+        if (minutes !in SUPPORTED_PAUSE_MINUTES || mutableUiState.value.isBusy) return
+        editSettings { it.copy(pauseMinutes = minutes, invalid = false) }
+    }
+
+    fun saveSettings() {
+        if (mutableUiState.value.isBusy) return
+        val draft = mutableUiState.value.settingsDraft ?: settingsDraft(mutableUiState.value.overview.settings)
+        val limit = parseBrlInput(draft.limit)
+        if (limit == null || limit < 0L || draft.repeatMinutes !in SUPPORTED_REPEAT_MINUTES ||
+            draft.pauseMinutes !in SUPPORTED_PAUSE_MINUTES
+        ) {
+            mutableUiState.update { it.copy(settingsDraft = draft.copy(invalid = true)) }
+            return
+        }
+        command {
+            val current = coordinator.overview()
+            val result = coordinator.changeSettings(ChangeSettings(
+                current.reference?.id,
+                current.settings.copy(
+                    limitCents = limit,
+                    alerts = AlertSettings(draft.repeatMinutes, draft.pauseMinutes),
+                ),
+                0L,
+            ))
+            if (result.rejection == null) mutableUiState.update { it.copy(settingsDraft = null) }
+            result
+        }
+    }
+
     private fun edit(change: (BalanceDraft) -> BalanceDraft) {
         if (mutableUiState.value.isBusy) return
         mutableUiState.update { state ->
@@ -165,25 +336,156 @@ internal class MonitorViewModel(
         }
     }
 
+    private fun editSettings(change: (MonitorSettingsDraft) -> MonitorSettingsDraft) {
+        if (mutableUiState.value.isBusy) return
+        mutableUiState.update { state ->
+            val draft = state.settingsDraft ?: settingsDraft(state.overview.settings)
+            state.copy(settingsDraft = change(draft))
+        }
+    }
+
+    private fun reloadHistory() {
+        val generation = ++historyGeneration
+        val filter = mutableUiState.value.historyFilter
+        mutableUiState.update {
+            it.copy(history = emptyList(), historyHasMore = false, historyLoading = true, historyError = null)
+        }
+        scope.launch {
+            operations.withLock { readHistoryPage(generation, filter, beforeId = null, append = false) }
+        }
+    }
+
+    private fun reloadPending() {
+        val generation = ++pendingGeneration
+        mutableUiState.update {
+            it.copy(pending = emptyList(), pendingHasMore = false, pendingLoading = true, pendingError = null)
+        }
+        scope.launch {
+            operations.withLock { readPendingPage(generation, beforeId = null, append = false) }
+        }
+    }
+
+    private suspend fun readHistoryPage(
+        generation: Long,
+        filter: HistoryFilter,
+        beforeId: Long?,
+        append: Boolean,
+    ) {
+        try {
+            val rows = coordinator.history(beforeId, PAGE_SIZE + 1, filter)
+            if (generation != historyGeneration || filter != mutableUiState.value.historyFilter) return
+            val hasMore = rows.size > PAGE_SIZE
+            val page = rows.take(PAGE_SIZE)
+            mutableUiState.update { state ->
+                if (generation != historyGeneration || state.historyFilter != filter) state else {
+                    val entries = if (append) (state.history + page).distinctBy { it.id }
+                        .sortedByDescending { it.id } else page
+                    state.copy(history = entries, historyHasMore = hasMore, historyLoading = false, historyError = null)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            mutableUiState.update { state ->
+                if (generation == historyGeneration && state.historyFilter == filter) {
+                    state.copy(historyLoading = false, historyError = "Não foi possível carregar o histórico financeiro.")
+                } else state
+            }
+        }
+    }
+
+    private suspend fun readPendingPage(generation: Long, beforeId: Long?, append: Boolean) {
+        try {
+            val rows = coordinator.pending(beforeId, PAGE_SIZE + 1)
+            if (generation != pendingGeneration) return
+            val hasMore = rows.size > PAGE_SIZE
+            val page = rows.take(PAGE_SIZE)
+            mutableUiState.update { state ->
+                if (generation != pendingGeneration) state else {
+                    val movements = if (append) (state.pending + page).distinctBy { it.id }
+                        .sortedByDescending { it.id } else page
+                    state.copy(pending = movements, pendingHasMore = hasMore, pendingLoading = false, pendingError = null)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            mutableUiState.update { state ->
+                if (generation == pendingGeneration) {
+                    state.copy(pendingLoading = false, pendingError = "Não foi possível carregar as pendências.")
+                } else state
+            }
+        }
+    }
+
     private suspend fun load() {
         val before = coordinator.overview()
-        val recent = coordinator.history(limit = 3)
+        val recent = try {
+            coordinator.history(limit = 3)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
         val overview = coordinator.overview()
         mutableUiState.update { state ->
             state.copy(
                 overview = overview,
-                recent = if (before.reference?.id == overview.reference?.id) recent else emptyList(),
+                recent = if (recent != null && before.reference?.id == overview.reference?.id) recent
+                    else if (before.reference?.id != overview.reference?.id) emptyList() else state.recent,
                 isLoading = false,
+                error = if (recent == null) "Não foi possível carregar o acompanhamento." else state.error,
+                historyLoading = if (recent == null) false else state.historyLoading,
+                historyError = if (recent == null) "Não foi possível carregar o histórico financeiro." else state.historyError,
                 referenceDraft = state.referenceDraft?.let { draft ->
                     if (overview.referenceSession?.id == draft.session.id) draft else
                         draft.copy(sessionUnavailable = true, confirmationVisible = false)
                 },
+                pendingSelection = state.pendingSelection?.let { selection ->
+                    if (selection.expectedReferenceId == overview.reference?.id) selection else
+                        selection.copy(confirmation = null, stale = true)
+                },
             )
         }
+        reloadHistoryLocked()
+        reloadPendingLocked()
     }
+
+    private suspend fun reloadHistoryLocked() {
+        val generation = ++historyGeneration
+        val filter = mutableUiState.value.historyFilter
+        mutableUiState.update {
+            it.copy(history = emptyList(), historyHasMore = false, historyLoading = true, historyError = null)
+        }
+        readHistoryPage(generation, filter, beforeId = null, append = false)
+    }
+
+    private suspend fun reloadPendingLocked() {
+        val generation = ++pendingGeneration
+        mutableUiState.update {
+            it.copy(pending = emptyList(), pendingHasMore = false, pendingLoading = true, pendingError = null)
+        }
+        readPendingPage(generation, beforeId = null, append = false)
+    }
+
+    private fun canConfirmNew(movement: PendingMovement): Boolean =
+        movement.status == PendingStatus.OPEN && !movement.sourceAlreadyApplied &&
+            movement.value.kind != null && (movement.value.amountCents?.let { it >= 0L } == true)
+
+    private fun settingsDraft(settings: MonitorSettings): MonitorSettingsDraft = MonitorSettingsDraft(
+        limit = brlEditable(settings.limitCents),
+        repeatMinutes = settings.alerts.repeatMinutes,
+        pauseMinutes = settings.alerts.pauseMinutes,
+    )
 
     override fun onCleared() {
         scope.cancel()
         super.onCleared()
+    }
+
+    private companion object {
+        const val PAGE_SIZE = 20
+        val SUPPORTED_REPEAT_MINUTES = setOf(15, 30, 60)
+        val SUPPORTED_PAUSE_MINUTES = setOf(15, 30, 60, 120)
     }
 }

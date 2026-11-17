@@ -175,6 +175,10 @@ geral (normal, saldo baixo, ciência/pausa e saldo a conferir).
 
 Plano concluído e revisado. Usuário escolheu opção 2: execução direta nesta
 conversa, com testes e checkpoints, sem agentes de implementação por tarefa.
+Após concluir a Tarefa 7, o usuário atualizou a autorização: permite subagents de
+implementação com conferência do agente principal e Git/commits locais por etapa,
+com Conventional Commits e código em inglês. Restrições históricas a Git e
+subagents não valem para as próximas etapas; S23 continua exigindo novo consentimento.
 Tarefa 1 concluída, com 32 JVM/47 instrumentados aprovados, build/lint sem erros
 e manifesto auditado. Tarefa 2 concluída com 74 JVM aprovados.
 Tarefa 3 concluída; 95 JVM aprovados e build/lint sem erros.
@@ -193,7 +197,19 @@ Tarefa 7 concluída e aprovada em revalidação independente após correções d
 entrada negativa e cancelamento expirado: temas, abas, referência, visão geral e
 permissão em contexto integrados. 112 JVM/126 instrumentados aprovados,
 lint 0 erros/8 avisos. Capturas sintéticas nos dois temas conferidas; AVD encerrado.
-Próxima: Tarefa 8, histórico paginado, pendências e ajustes detalhados.
+Tarefa 8 concluída por implementador delegado, com conferência do agente
+principal e revisões independentes spec/qualidade aprovadas. Histórico paginado,
+pendências, ajustes e diagnóstico integrados. Verificação final: 112 JVM e
+144 instrumentados aprovados, lint 0 erros/8 avisos.
+Tarefa 9: integração técnica, evidências, auditoria do APK e revisão de código
+aprovadas; usuário confirmou TalkBack funcional no percurso orientado da Visão
+geral, incluindo botões. Isso não é auditoria exaustiva de todas as telas/temas.
+Tarefa 10: sessão assistida encerrada com resultado parcial. Atualização
+`install -r --user 0` e versionCode 2 confirmados; registros anteriores,
+estimativa, débitos naturais, primeiro aviso, estados de pausa/retomada e
+restauração do limite original confirmados por relato. Crédito natural,
+repetição temporal e ensaios de interrupção permanecem não observados.
+Não houve limpeza ou concessão de permissão por comando.
 
 - [x] Tarefa 1: baseline, WorkManager e infraestrutura.
 - [x] Tarefa 2: regras financeiras e conferência.
@@ -202,6 +218,6 @@ Próxima: Tarefa 8, histórico paginado, pendências e ajustes detalhados.
 - [x] Tarefa 5: comandos, captura e recuperação.
 - [x] Tarefa 6: notificações Android e WorkManager.
 - [x] Tarefa 7: temas, navegação, configuração e visão geral.
-- [ ] Tarefa 8: histórico, pendências, ajustes e diagnóstico.
-- [ ] Tarefa 9: integração, acessibilidade e revisão final.
-- [ ] Tarefa 10: atualização e validação consentida no S23.
+- [x] Tarefa 8: histórico, pendências, ajustes e diagnóstico.
+- [x] Tarefa 9: integração/revisão e checagem dirigida de TalkBack, com escopo registrado.
+- [x] Tarefa 10: sessão consentida encerrada com evidência parcial e cenários residuais explícitos; não equivale a validação física integral.

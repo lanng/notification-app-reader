@@ -2,9 +2,31 @@
 
 ## Estado
 
-Execução direta autorizada pelo usuário. Tarefas 1–7 concluídas e revisadas.
-Próxima: Tarefa 8 — histórico, pendências e ajustes detalhados. Nenhuma nova
-versão foi instalada no S23, nenhum aviso físico emitido e nenhuma permissão física alterada.
+Execução com subagents autorizada após a T7. Tarefas 1–8 concluídas e revisadas.
+Tarefa 9: integração técnica e checagem dirigida de TalkBack concluídas, esta
+confirmada por relato do usuário, sem auditoria exaustiva de telas/temas.
+Tarefa 10: S23 atualizado para 1.1/código 2 com autorização; sessão assistida
+encerrada com evidência parcial e cenários residuais explícitos no fechamento.
+Nenhuma permissão física alterada por comando.
+
+**Visual follow-up concluído por implementação delegada e revisões:** após a checagem funcional,
+usuário apontou ícones inferiores pequenos e aprovou a especificação escrita de
+vetores de 28 dp, preservando nomes/cores/alvos. Causa conferida em `MonitorRoot.kt`:
+ícones eram `Text` com caracteres Unicode. Especificação em
+`docs/superpowers/specs/2026-11-17-bottom-navigation-icons-design.md`;
+documento, plano e implementação aprovados em revisões independentes.
+Verificação do controlador: 112 JVM / 146 instrumentados, zero falhas/erros/
+ignorados, lint 0 erros / 8 avisos anteriores. APK gerado para a instalação manual
+posterior escolhida pelo usuário. Evidências e novo hash em
+`docs/testing/bottom-navigation-icons-results.md`. Nenhum acesso físico nem
+instalação pelo assistente nesta etapa.
+
+**Launcher artwork follow-up concluído:** usuário forneceu uma imagem PNG e autorizou
+adaptá-la como ícone do app, preservando a arte/cores e tratando borda externa/
+margens adaptativas. Implementação delegada com revisões spec/qualidade aprovadas,
+112 JVM / 150 instrumentados, zero falhas/erros/ignorados, lint 0 erros / 14
+avisos documentados. APK assinado gerado para instalação manual, evidências e
+hash em `docs/testing/launcher-artwork-results.md`. Sem nova ação no S23.
 
 ## Baseline — 2026-11-17
 
@@ -514,8 +536,337 @@ teve 23 testes aprovados. Nenhum código foi alterado após a revalidação.
 AVD próprio `emulator-5572` encerrado com `emu kill`, resposta OK. Nenhuma
 instalação, permissão ou aviso físico foi alterado no S23.
 
-**Retomada atual:** Tarefa 8 — histórico paginado, filtros, detalhe e resolução de
+**Retomada ao concluir a Tarefa 7 (histórica):** Tarefa 8 — histórico paginado, filtros, detalhe e resolução de
 pendências, limite/intervalos e ajustes de diagnóstico. Reaproveitar tema e link
 nativo já integrados, sem tratar a prévia de três registros como histórico completo.
 Tarefas 9/10 e validação física continuam pendentes; atualizar o S23 exige
 nova autorização explícita.
+
+## Tarefa 8 — caminho de evidência (concluída e revisada)
+
+Usuário autorizou subagents de implementação com revisão, Git local e commits
+por etapa. O checkpoint T7 foi registrado em quatro commits (build/higiene,
+implementação, testes e documentação), sem reconstruir versões históricas
+artificiais, sem remoto/push e sem incluir caches, local.properties ou exports.
+
+Alegação: histórico financeiro paginado e filtrado, decisões explícitas de
+pendências e ajustes suportados usam somente o coordinator, preservam identidade,
+marco e saldo, e não transformam diagnóstico/propaganda em dinheiro.
+
+Escolha: testes Android com SQLite/coordinator/clock reais para paginação,
+concorrência, pendências, limpeza e configurações; Compose com fixtures para
+texto, seleção, confirmações e navegação. Capturas sintéticas complementam os
+testes. Fakes isolados podem controlar falha/barreira sem substituir as provas
+financeiras reais. Validação física continua separada e não autorizada.
+
+- [x] Histórico paginado, filtros e detalhe: RED → GREEN.
+- [x] Pendências, confirmação idempotente e marco antigo: RED → GREEN.
+- [x] Ajustes de limite, repetição/pausa e estados de falha: RED → GREEN.
+- [x] Integração, diagnóstico/limpeza/exportação e navegação.
+- [x] Verificação completa, capturas sintéticas e revisões spec/qualidade.
+
+### Entrega e revisão de especificação da Tarefa 8
+
+O implementador entregou histórico paginado por ID local exclusivo (20 registros
+com sobreconsulta de um para detectar próxima página), filtros e detalhe
+financeiro sem texto bancário bruto. Pendências têm paginação própria, motivo,
+valor legível quando disponível e decisão com confirmação explícita.
+O marco esperado é capturado ao abrir a seleção; correção externa invalida a
+decisão antiga, sem rebinding silencioso ao novo saldo.
+
+Ajustes permitem limite não negativo validado em centavos, repetição 15/30/60 min
+e pausa 15/30/60/120 min. Tema persistido da T7 foi reaproveitado. Falha ao abrir
+preferências nativas é separada de capacidade de emitir e autorização de captura.
+O launcher SAF foi mantido na composição estável da Activity, fora do destino
+condicional do diagnóstico; limpeza explica que não apaga o acompanhamento.
+
+Implementador relatou RED dos testes de filtro/linha clicável contra a prévia
+anterior e GREEN dos testes focados. Um teste de paginação de pendências expôs
+corrida da fixture com reload de revisão; recriar o ViewModel ao redor da carga
+sintética estabilizou o cenário. O agente principal conferiu o diff e executou
+as suítes completas, em vez de tratar o relato como verificação independente.
+
+A revisão spec encontrou um Minor: faltava texto explícito quando a observação
+bruta estava disponível. Corrigido por RED → GREEN relatado no teste focado;
+o código agora exibe disponibilidade ou ausência e declara que mostra apenas
+metadados mínimos, não conteúdo bruto. Teste alterna indisponível → disponível →
+indisponível. Revalidação spec somente leitura **aprovada**, sem achado remanescente.
+A primeira tentativa de revalidação foi interrompida por limite de uso; a
+aprovação só foi recebida após a retomada, não inferida da tentativa interrompida.
+
+Verificação independente após essa correção: **112 JVM + 144 instrumentados**,
+zero falhas/erros/ignorados; build/APKs/lint/connected exit 0. Lint 0 erros/fatais
+e 8 avisos anteriores. Contagem 144 vem dos XMLs, não de somar estimativas das
+classes (o teste de disponibilidade ampliou um caso já existente).
+Revisão de qualidade/final ainda em andamento.
+
+## Tarefa 9 — preparação de integração final (parcial)
+
+Executada em paralelo à Tarefa 8 apenas no escopo documental/estável.
+Não é aprovação da integração final.
+
+- README atualizado para o monitor local, distinguindo estimativa, referência,
+  correção, pendência, ciência, pausa e recuperação. O estado ainda informa T8 em
+  implementação, sem declarar instalação financeira no S23.
+- Checklist `monitor-local-s23-checklist.md` preparado, com todas as observações
+  físicas pendentes e portão explícito de autorização/artefato/preservação de dados.
+  Links locais do README verificados por script; nenhum teste físico alegado.
+- Git inicial contém somente fontes, testes, documentação, wrapper e ferramentas.
+  112 caminhos revisados antes dos commits, sem padrões detectados de chaves
+  privadas/tokens/senhas; caches/configuração local/exports/bancos/APKs ignorados.
+  A checagem por padrões não substitui inspeção humana antes de publicar o remoto.
+
+Contraste calculado por luminância relativa WCAG para os pares de tokens aprovados:
+
+| Par | Claro | Escuro |
+|---|---:|---:|
+| Texto / fundo | 14,39:1 | 17,12:1 |
+| Texto secundário / fundo | 5,01:1 | 8,42:1 |
+| Destaque / superfície | 6,94:1 | 8,78:1 |
+| Atenção / fundo âmbar | 6,21:1 | 9,87:1 |
+
+Todos esses pares superam 4,5:1 para texto normal. A conta não valida componentes
+renderizados, estados desabilitados, foco, corte, landscape ou TalkBack.
+Essas verificações e a suíte final após T8 continuam pendentes.
+
+Um subagent somente leitura mapeou a cobertura estável de migração/store/alertas.
+O agente principal conferiu os testes referidos: migração sem dinheiro,
+identidades após limpeza, resolução idempotente/marco antigo, reconstrução do
+saldo e pausa/recuperação já têm verificações separadas.
+
+Lacuna identificada: migração de banco preenchido seguida de bootstrap pelo
+coordinator real, sem submissão retroativa, e recriação desse coordinator sobre
+o mesmo SQLite. Preparado
+`ANDROID/monitor/MonitorLifecycleIntegrationTest.kt`, fora do escopo de arquivos
+da T8. Ele junta migração/bootstrap e um fluxo de referência, dois débitos,
+duplicata, ciência/pausa, pendência, crédito, correção, limpeza e reabertura.
+Ainda **não executado**: a linha de Gradle/AVD está reservada ao implementador T8.
+Não tratar o arquivo ou a leitura do subagent como teste aprovado.
+
+### Execução independente após entrega da T8
+
+O agente principal executou build/JVM/APKtest/lint e a suíte Android completa:
+**112 JVM + 142 instrumentados**, zero falhas/erros/ignorados; lint 0 erros/fatais
+e 8 avisos anteriores. Os dois testes de `MonitorLifecycleIntegrationTest`
+passaram nesta rodada, fechando a lacuna de migração → bootstrap real sem
+submissão retroativa e recriação do coordinator com saldo/histórico/identidade
+preservados. A revisão spec da T8 encontrou um Minor sobre exibir explicitamente
+a disponibilidade da observação bruta; correção delegada antes da revisão de qualidade.
+
+Adicionado `MonitorFinalLayoutTest` com dados apenas sintéticos. Captura dos três
+novos destinos em claro/escuro passou isoladamente; o ensaio de configurações a
+200% em restrições retrato 390×844 dp e paisagem 740×360 dp também passou.
+Isso simula dimensões/configuração local do Compose, não uma rotação física do S23.
+
+Diagnóstico do teste de alvos de toque: a primeira asserção mediu altura visual
+usando densidade da raiz. `ForcedSize` pode mudar a densidade local e um chip
+Material pode expandir o hit target além do retângulo visual. Asserções com
+`boundsInRoot`/`size` não estabeleciam o tamanho do alvo. A checagem final usa
+`SemanticsNode.touchBoundsInRoot` e densidade do conteúdo, exigindo os pixels
+correspondentes a 48 dp nominais, com tolerância explícita de apenas 0,001 pixel
+para precisão numérica dos limites fracionários (não 0,5 dp);
+ações de repetição/pausa/salvar foram acionadas nos dois tamanhos sem alterar
+produção. Não reduzir o requisito para “fazer passar”.
+
+Fontes primárias consultadas para esta verificação:
+[DeviceConfigurationOverride](https://developer.android.com/reference/kotlin/androidx/compose/ui/test/DeviceConfigurationOverride)
+e [SemanticsNode](https://developer.android.com/reference/kotlin/androidx/compose/ui/semantics/SemanticsNode).
+APIs públicas, sem dependências novas. Teste semântico não comprova a experiência
+real de leitura/foco do TalkBack; essa parte continua explicitamente pendente.
+
+### Artefato e capturas após a retomada
+
+Build completo e suíte Android repetidos após a correção de disponibilidade:
+112 JVM/144 instrumentados aprovados e lint 0 erros/8 avisos. Execução direta
+adicional de `MonitorFinalLayoutTest` e `MonitorVisualTest`: `OK (3 tests)`,
+somente para produzir as imagens antes de o runner remover os APKs.
+
+O agente principal extraiu e inspecionou as oito imagens exclusivamente sintéticas
+em `screenshots/synthetic-{monitor,history,pending,settings}-{light,dark}.png`.
+As datas de 1969 no histórico de teste vêm dos instantes pequenos das fixtures,
+não de dados do usuário nem de uma alegação sobre o relógio de produção.
+Campos/ações fora do primeiro viewport dos Ajustes permanecem acessíveis por
+rolagem; o teste ampliado aciona repetição, pausa e salvar a 200% nos dois tamanhos.
+
+Manifesto mesclado e APK conferidos: pacote `br.com.c6tag.diagnostico`,
+versionCode 2/versionName 1.1, nome `Monitor de tags`; permissões Android
+exatamente POST_NOTIFICATIONS, WAKE_LOCK, ACCESS_NETWORK_STATE,
+RECEIVE_BOOT_COMPLETED e FOREGROUND_SERVICE, além da permissão interna AndroidX.
+Sem INTERNET, alarme exato, DND ou full-screen. `aapt2 xmltree` comprovou
+allowBackup=false e recursos empacotados com exclusões para backup e transferência.
+BuildConfig gerado confirmou `C6_PACKAGE_NAME=com.c6bank.app`, sem ler ou imprimir
+outras propriedades locais.
+
+APK desta rodada: 12.973.580 bytes;
+SHA-256 `1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
+Esse hash deve ser recalculado se qualquer código/recurso/build mudar antes de
+uma atualização física. Nenhuma instalação ou permissão foi alterada no S23.
+
+### Fechamento técnico de T8/T9
+
+Revisão de qualidade/final não encontrou Critical/Important. O único Minor foi
+a inconsistência entre afirmar 48 dp e aceitar 47,5 dp no teste. A asserção agora
+compara `touchBoundsInRoot.height` com `48f * densidadeLocal`, admitindo somente
+0,001 pixel de ruído numérico, explicitamente documentado. Uma tentativa de
+comparar com pixel inteiro arredondado rejeitou 69,90001 px, que já eram 48 dp
+na densidade 1,45625; a comparação fracionária evita essa falsa falha sem aceitar
+alvo genuinamente menor em unidades dp.
+
+Teste focado e suíte completa repetidos após o ajuste: **112 JVM + 144
+instrumentados**, zero falhas/erros/ignorados; build/APKs/lint/connected exit 0,
+lint 0 erros/fatais e 8 avisos anteriores. XMLs conferidos pelo agente principal.
+SHA-256 do APK permaneceu igual (o último ajuste foi apenas de teste/documentação).
+Revalidação de qualidade somente leitura **aprovada**, sem achados remanescentes.
+Os revisores não executaram Gradle/ADB; as execuções acima são do agente principal.
+
+**Tarefa 8 concluída. Tarefa 9 parcialmente concluída:** integração técnica,
+invariantes, testes de layout/configuração, auditoria do APK e revisão final de
+código aprovados. Leitura/foco reais do TalkBack continuam não observados.
+Não converter a prova semântica em promessa de acessibilidade completa.
+
+**Retomada atual:** concluir a checagem manual de TalkBack da Tarefa 9 e obter
+nova autorização antes de qualquer consulta/atualização física da Tarefa 10.
+Manter commits na branch de trabalho; sem merge ou push automático.
+
+Commits locais desta entrega na `feat/monitor-history-and-settings`:
+
+- `e2cb3c8` — implementação da T8.
+- `9e04d9b` — testes de paginação, decisões e ajustes.
+- `9a1fc95` — invariantes de ciclo de vida e evidência sintética de layout.
+
+Emulador read-only próprio `emulator-5572` encerrado com `emu kill`, resposta OK.
+S23 permanece sem atualização, novas consultas ou alteração de permissões.
+
+## Tarefa 10 — sessão assistida autorizada
+
+Após solicitação explícita de conexão USB e autorização de atualização
+preservando dados, o usuário confirmou: “Conectado, sim autorizo”.
+Reconferido exatamente um alvo físico autorizado: SM-S911B, Android 17/API 37.
+Origem C6 confirmada anteriormente (`com.c6bank.app`) instalada; app existente
+`br.com.c6tag.diagnostico` com versionCode 1 no usuário principal 0.
+Nenhum serial registrado neste relatório; seleção operacional é temporária e
+externa ao repositório.
+
+Uma consulta inicial de pacotes sem filtro de usuário retornou os pacotes
+esperados, mas também aviso de acesso negado a perfil restrito. Limitada a
+consulta ao usuário principal 0, sem tentar acessar o perfil restrito, ela
+terminou sem aviso. Apenas metadados foram consultados.
+
+Build/JVM/APKtest/lint reconfirmados com exit 0, sem connectedAndroidTest no
+aparelho físico. APK e hash coincidem com a rodada revisada:
+versão 1.1/código 2, 12.973.580 bytes, SHA-256
+`1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
+BuildConfig exato e ausência de permissões proibidas conferidos novamente.
+Atualização ainda não executada neste registro; leitura/foco do TalkBack
+continuam pendentes de observação manual assistida.
+
+### Atualização autorizada aplicada
+
+Após verificar novamente o mesmo alvo físico, modelo e usuário principal 0,
+`adb -s <alvo autorizado> install -r --user 0 app-debug.apk` retornou `Success`.
+Metadados do pacote existente confirmaram versionCode 2 (antes 1).
+Não houve desinstalação, limpeza de dados, instalação de APK de teste nem
+concessão de permissões por comando.
+
+Iniciado somente `br.com.c6tag.diagnostico/.MainActivity` no usuário principal:
+`am start -W` retornou `Status: ok`, `LaunchState: COLD`, atividade esperada.
+Isso comprova atualização/início aceitos pelo sistema, não tela vista, migração
+conferida pelo usuário, captura completa, som ou alertas físicos.
+
+Próxima observação assistida: usuário confere a interface e os registros antigos
+em Ajustes → Diagnóstico técnico, sem limpar/exportar ou enviar conteúdo privado.
+Depois, configurar referência local e conferir TalkBack e fluxos naturais.
+
+Usuário respondeu “sim” à conferência dos registros antigos em Ajustes →
+Diagnóstico técnico após a atualização. Evidência relatada de histórico anterior
+acessível, sem extração, exportação ou contagem independente de dados privados.
+Configuração do saldo de referência, avisos e TalkBack ainda pendentes.
+
+Usuário esclareceu que já havia configurado a referência ao abrir o app, confirmou
+que a estimativa aparece corretamente e relatou débitos reconhecidos de
+notificações recebidas naturalmente nesse intervalo. Não orientar nova referência
+desnecessária: ela substituiria o marco já configurado. Nenhum valor, conteúdo
+bancário, comprovante ou credencial foi solicitado/coletado; não houve transação
+exigida para o teste. Relato corrobora uso real de referência/captura/reconhecimento
+de débitos, mas não comprova captura integral ou cálculo bancário auditado.
+Permissão de avisos, ciência/pausa, recuperação e TalkBack seguem em conferência.
+
+Na conferência separada da permissão de avisos, usuário confirmou que estão
+permitidos e que já concedeu a permissão e fez a configuração manualmente.
+Não foram executados comandos de permissão/configuração no aparelho.
+Isso não comprova aviso efetivamente exibido, som, repetição ou ciência/pausa.
+Próximo ensaio proposto: elevar temporariamente o limite, sem mudar referência
+nem realizar transação, somente após consentimento específico; depois restaurar
+o limite original. Esse ensaio ainda não foi autorizado nem observado.
+
+Após a proposta de ensaio sem transação, usuário relatou: “Funcionou, ele
+notificou corretamente”. Registrado primeiro aviso local confirmado por relato
+no S23; não apenas uma solicitação de publicação aceita pelo sistema.
+Não foram informados som, horário/latência, condição de tela ou valor do limite;
+não inferir esses detalhes nem a restauração do limite original.
+Ciência/pausa, retomada e encerramento do ciclo ainda não observados.
+
+Após orientação para tocar em “Estou ciente · pausar por … min”, usuário respondeu
+“sim” à conferência de “Lembretes pausados”, fim previsto da pausa e saldo igual.
+Registrado estado visual de pausa e ausência de alteração do saldo por relato;
+não houve espera/medição da supressão de lembretes ou do término automático.
+Retomada manual e restauração do limite original seguem pendentes.
+
+Após orientação para “Retomar lembretes”, usuário confirmou que o estado
+“Lembretes pausados” desapareceu e voltou “Saldo abaixo do limite”.
+Retomada visual confirmada por relato; não comprova prazo de próxima entrega
+nem ausência de rajadas ao longo do tempo. Restauração do limite original
+e encerramento do ciclo de teste ainda pendentes.
+
+Usuário confirmou a restauração do limite de atenção original e o desaparecimento
+de “Saldo abaixo do limite”, após orientação sem alterar a referência de saldo.
+Registrada saída visual da condição de teste por restauração de configuração;
+não confundir com recuperação por crédito natural, que continua não observada.
+Primeiro aviso, estado de ciência/pausa, retomada e retorno do limite estão
+confirmados por relato; prazos/supressão temporal e TalkBack seguem pendentes.
+
+Usuário autorizou ativar temporariamente o TalkBack para checagem assistida de
+leitura/foco. Ativação e desativação serão manuais, com orientação prévia dos
+gestos; nenhuma configuração de acessibilidade foi alterada por comando.
+Consentimento não é evidência de ativação nem de leitura/foco aprovados.
+
+### Fechamento da checagem dirigida e da sessão física
+
+Após orientação dos gestos de navegação, ativação/desativação manual e percurso
+da Visão geral (saldo estimado, botões e abas), usuário informou: “Certo, testei
+e esta funcional isso no talk back, botoes etc. Tudo certo”.
+Registrada aprovação por relato da checagem dirigida de TalkBack. Não inferir
+auditoria manual de todas as telas, temas ou fluxos de formulário a partir dela.
+Nenhum conteúdo bancário ou valor lido foi solicitado. Desativação posterior do
+TalkBack não foi confirmada; pode ser feita manualmente se usado só no ensaio.
+
+**Tarefa 9 encerrada no escopo documentado:** evidência técnica anterior e
+checagem manual dirigida complementares, sem substituir uma pela outra.
+**Tarefa 10: sessão encerrada com resultado parcial**, sem exigir eventos
+bancários ou ampliar consentimento para ensaios de interrupção.
+
+Estabelecido por comando: atualização preservando a instalação, versionCode 2
+e início da Activity. Confirmado por relato: registros anteriores acessíveis,
+referência configurada/estimativa correta, débitos naturais reconhecidos,
+avisos permitidos manualmente, primeiro aviso local, estados de ciência/pausa
+com saldo inalterado, retomada, restauração do limite e TalkBack dirigido.
+
+Limites/residuais: sem auditoria privada de aritmética ou captura integral,
+crédito natural, deduplicação física exaustiva, medição de repetição/fim de pausa,
+supressão temporal, som, segundo plano/tela bloqueada, reboot, revogação ou
+force-stop. Limpeza/exportação e todos os demais cenários não observados do
+checklist permanecem pendentes; não foram executados para completar a lista.
+Restauração do limite não equivale a recuperação por crédito bancário.
+
+Artefato instalado permanece versão 1.1/código 2, 12.973.580 bytes, SHA-256
+`1eaacb831de78a2fb60d628e5bcffeb0dd72fd808a8aedad1bd3f6fe5ccad1bf`.
+As alterações deste fechamento são somente documentais. Preservar a branch
+`feat/monitor-history-and-settings`, sem merge/push ou novas ações físicas
+automáticas; comunicação remota continua fora desta versão.
+
+Verificação local deste fechamento documental: comando completo
+JVM/build/APKtest/lint aceito com exit 0, `BUILD SUCCESSFUL`, 84 tarefas
+(1 executada/83 up-to-date). Relatórios JVM em cache continuam com 112 testes,
+zero falhas/erros/ignorados; lint 0 erros/fatais e 8 avisos.
+Não houve nova execução instrumentada nem conexão ADB nesta etapa.
+Tamanho e SHA-256 do APK conferidos e inalterados em relação ao instalado.

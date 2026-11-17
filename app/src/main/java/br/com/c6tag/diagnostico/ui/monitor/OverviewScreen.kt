@@ -134,6 +134,7 @@ internal fun OverviewScreen(state: MonitorUiState, actions: MonitorActions) {
 @Composable
 internal fun MonitorCaptureStatus(state: MonitorUiState, actions: MonitorActions) {
     Text(stringResource(R.string.monitor_capture), style = MaterialTheme.typography.titleSmall)
+    state.captureSettingsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     Text(stringResource(when (state.authorization) {
         AuthorizationStatus.AUTHORIZED -> R.string.monitor_capture_authorized
         AuthorizationStatus.NOT_AUTHORIZED -> R.string.monitor_capture_denied

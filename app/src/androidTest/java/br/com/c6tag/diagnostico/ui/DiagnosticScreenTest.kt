@@ -278,7 +278,7 @@ class DiagnosticScreenTest {
         render(state(events = listOf(event(7L))))
 
         compose.onNodeWithText("Limpar registros").performClick()
-        compose.onNodeWithText("Os registros internos serão apagados. Exportações já existentes não serão apagadas; eventos novos ainda podem chegar.")
+        compose.onNodeWithText("Apaga somente os registros de diagnóstico deste aparelho; não apaga saldos, referências nem movimentações financeiras. Exportações já existentes não serão apagadas; novos eventos ainda podem chegar.")
             .assertExists()
         compose.onNodeWithText("Cancelar").performClick()
         assertEquals(0, clearRequests)
