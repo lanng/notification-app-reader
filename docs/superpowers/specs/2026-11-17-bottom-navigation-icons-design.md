@@ -5,7 +5,8 @@
 The user reported that the bottom navigation icons are too small on the S23.
 They approved replacing the current text glyphs with 28 dp vector icons while
 preserving labels, colors and touch targets. This document makes that small
-visual change explicit; written-spec approval is still required before implementation.
+visual change explicit. The user subsequently approved this written document
+with “Sim”; implementation is authorized, but physical installation is not.
 
 Independent read-only specification review: approved, with no blocking issues.
 The review highlighted measuring the rendered icon box and retaining each
