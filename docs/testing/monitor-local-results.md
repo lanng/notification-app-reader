@@ -21,6 +21,13 @@ posterior escolhida pelo usuário. Evidências e novo hash em
 `docs/testing/bottom-navigation-icons-results.md`. Nenhum acesso físico nem
 instalação pelo assistente nesta etapa.
 
+**Launcher artwork follow-up concluído:** usuário forneceu uma imagem PNG e autorizou
+adaptá-la como ícone do app, preservando a arte/cores e tratando borda externa/
+margens adaptativas. Implementação delegada com revisões spec/qualidade aprovadas,
+112 JVM / 150 instrumentados, zero falhas/erros/ignorados, lint 0 erros / 14
+avisos documentados. APK assinado gerado para instalação manual, evidências e
+hash em `docs/testing/launcher-artwork-results.md`. Sem nova ação no S23.
+
 ## Baseline — 2026-11-17
 
 Comando:

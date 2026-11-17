@@ -24,6 +24,13 @@ Essa revisão visual ainda não foi instalada no S23 pelo assistente.
 Artefato e evidências em
 [`docs/testing/bottom-navigation-icons-results.md`](docs/testing/bottom-navigation-icons-results.md).
 
+**Ícone do app:** a arte fornecida pelo usuário foi adaptada para o launcher
+Android, com recursos adaptativos e fallbacks por densidade, sem substituir o
+ícone monocromático das notificações. APK atualizado para instalação manual:
+112 JVM / 150 instrumentados aprovados; lint 0 erros / 14 avisos documentados.
+Fonte, reprodução, prévias e hash em
+[`docs/testing/launcher-artwork-results.md`](docs/testing/launcher-artwork-results.md).
+
 ## Como funciona
 
 - Consulte o saldo atual no C6 e informe um **saldo de referência**. Ele já

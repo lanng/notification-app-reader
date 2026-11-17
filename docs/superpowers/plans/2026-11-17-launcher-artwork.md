@@ -13,6 +13,11 @@
 **Status:** specification and plan independently reviewed and approved after
 clarifying the physical-device boundary and exact input file. User authorized
 implementation directly. Local baseline accepted with `--no-daemon`.
+Delegated implementation and independent spec review completed. Controller full
+verification: 112 JVM / 150 instrumented, no failures/errors/skips, lint 0 errors.
+Independent final quality review approved with no findings. Artifact signature,
+input/resources/packaging and hash verified; owned AVD shut down.
+Task complete, APK handed off for manual installation; no physical-device action.
 
 ## Context and ownership
 
@@ -49,11 +54,11 @@ implementation directly. Local baseline accepted with `--no-daemon`.
 
 ## Task 1 — tightly coupled delegated RED/GREEN
 
-- [ ] Start owned read-only `emulator-5572` only after confirming that exact port
+- [x] Start owned read-only `emulator-5572` only after confirming that exact port
   is not already live. Use established SDK AVD `Medium_Phone_API_36.1` with
   `-read-only -no-snapshot-save -no-snapshot-load -no-window -no-audio`.
   Use one `wait-for-device`, not polling/sleeps or physical-device queries.
-- [ ] Add runtime instrumentation using `InstrumentationRegistry` target context:
+- [x] Add runtime instrumentation using `InstrumentationRegistry` target context:
 
 ```kotlin
 val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -67,25 +72,25 @@ assertTrue(icon is AdaptiveIconDrawable)
   transparent outer padding/nonempty art with retained opaque white details.
   Use runtime IDs rather than referencing resources not yet created, so RED
   compiles. Do not assert unrelated default-app-icon rendering.
-- [ ] Run focused `LauncherIconTest` with the command below before production
+- [x] Run focused `LauncherIconTest` with the command below before production
   edits; record the expected missing configured icon/AdaptiveIconDrawable failure.
-- [ ] Copy source without altering original; verify the approved SHA-256.
-- [ ] Implement generator with default source `artwork/launcher/source.png`.
+- [x] Copy source without altering original; verify the approved SHA-256.
+- [x] Implement generator with default source `artwork/launcher/source.png`.
   Validate PNG dimensions before writing, dispose native graphics objects and
   fail clearly on invalid input. No package installation or network calls.
   Flood-fill only near-white pixels connected to the image exterior to alpha0;
   preserve disconnected interior whites. Keep all original remaining pixels
   unchanged apart from deterministic high-quality scaling.
-- [ ] Center artwork on a transparent 108 dp adaptive layer over solid navy
+- [x] Center artwork on a transparent 108 dp adaptive layer over solid navy
   (`#052B57` starting background). Start near a 64–66 dp artwork box and use
   inspected masks to choose margins that preserve bell/alert/gate. Avoid
   blindly scaling the full source to 108 dp and clipping the subject.
-- [ ] Generate five densities: legacy icon sizes 48/72/96/144/192 pixels;
+- [x] Generate five densities: legacy icon sizes 48/72/96/144/192 pixels;
   adaptive foreground canvases 108/162/216/324/432 pixels. Compose the legacy
   icon from the central 72 dp visible region on navy. Generate circle and
   rounded-square previews from the same visible region, not a separate layout.
   Keep PNG alpha and proper resampling; do not write outside the named files.
-- [ ] Add adaptive XML and color:
+- [x] Add adaptive XML and color:
 
 ```xml
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
@@ -100,26 +105,26 @@ assertTrue(icon is AdaptiveIconDrawable)
 </resources>
 ```
 
-- [ ] Set manifest regular/round icon attributes. Leave notification drawable,
+- [x] Set manifest regular/round icon attributes. Leave notification drawable,
   dependencies, app version and all Kotlin production logic untouched.
-- [ ] Run generator, then focused tests GREEN without weakening icon/layer/alpha
+- [x] Run generator, then focused tests GREEN without weakening icon/layer/alpha
   assertions. Inspect both previews; improve margins if clipping is present.
   Self-review and hand off exclusive Gradle/ADB ownership, keeping owned AVD
   running for controller checks. Do not commit yet.
 
 ## Task 2 — controller review, verification and delivery
 
-- [ ] Independently review actual diff; request spec compliance then quality
+- [x] Independently review actual diff; request spec compliance then quality
   reviews, routing any fixes back to implementer. No controller production edits.
-- [ ] Run complete suite with the owned emulator explicitly selected; inspect
+- [x] Run complete suite with the owned emulator explicitly selected; inspect
   XML counts/failures/skips and lint (previous baseline 112 JVM / 146 Android,
   lint 0 errors / 8 warnings; MissingApplicationIcon should disappear).
-- [ ] Audit packaged icon references, foreground/color resources, unchanged
+- [x] Audit packaged icon references, foreground/color resources, unchanged
   notification icon, source hash and absence of unrelated application changes.
   Check signed debug APK with `apksigner`, size/SHA-256 and original package.
-- [ ] Record evidence/limitations and regeneration command. Commit local changes
+- [x] Record evidence/limitations and regeneration command. Commit local changes
   with Conventional Commits, checking diff whitespace before each commit.
-- [ ] Shut down only owned AVD and report APK path. Do not install on S23 or ask
+- [x] Shut down only owned AVD and report APK path. Do not install on S23 or ask
   for another decision; user already chose later manual installation.
 
 ## Commands
