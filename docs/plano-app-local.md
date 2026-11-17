@@ -175,6 +175,10 @@ geral (normal, saldo baixo, ciência/pausa e saldo a conferir).
 
 Plano concluído e revisado. Usuário escolheu opção 2: execução direta nesta
 conversa, com testes e checkpoints, sem agentes de implementação por tarefa.
+Após concluir a Tarefa 7, o usuário atualizou a autorização: permite subagents de
+implementação com conferência do agente principal e Git/commits locais por etapa,
+com Conventional Commits e código em inglês. Restrições históricas a Git e
+subagents não valem para as próximas etapas; S23 continua exigindo novo consentimento.
 Tarefa 1 concluída, com 32 JVM/47 instrumentados aprovados, build/lint sem erros
 e manifesto auditado. Tarefa 2 concluída com 74 JVM aprovados.
 Tarefa 3 concluída; 95 JVM aprovados e build/lint sem erros.

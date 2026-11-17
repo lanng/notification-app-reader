@@ -519,3 +519,26 @@ pendências, limite/intervalos e ajustes de diagnóstico. Reaproveitar tema e li
 nativo já integrados, sem tratar a prévia de três registros como histórico completo.
 Tarefas 9/10 e validação física continuam pendentes; atualizar o S23 exige
 nova autorização explícita.
+
+## Tarefa 8 — caminho de evidência (em andamento)
+
+Usuário autorizou subagents de implementação com revisão, Git local e commits
+por etapa. O checkpoint T7 foi registrado em quatro commits (build/higiene,
+implementação, testes e documentação), sem reconstruir versões históricas
+artificiais, sem remoto/push e sem incluir caches, local.properties ou exports.
+
+Alegação: histórico financeiro paginado e filtrado, decisões explícitas de
+pendências e ajustes suportados usam somente o coordinator, preservam identidade,
+marco e saldo, e não transformam diagnóstico/propaganda em dinheiro.
+
+Escolha: testes Android com SQLite/coordinator/clock reais para paginação,
+concorrência, pendências, limpeza e configurações; Compose com fixtures para
+texto, seleção, confirmações e navegação. Capturas sintéticas complementam os
+testes. Fakes isolados podem controlar falha/barreira sem substituir as provas
+financeiras reais. Validação física continua separada e não autorizada.
+
+- [ ] Histórico paginado, filtros e detalhe: RED → GREEN.
+- [ ] Pendências, confirmação idempotente e marco antigo: RED → GREEN.
+- [ ] Ajustes de limite, repetição/pausa e estados de falha: RED → GREEN.
+- [ ] Integração, diagnóstico/limpeza/exportação e navegação.
+- [ ] Verificação completa, capturas sintéticas, revisão spec/qualidade e commit.

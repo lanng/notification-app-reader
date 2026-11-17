@@ -15,6 +15,13 @@ obrigatório o backfill de identidades v1 e o teste do primeiro aviso direto.
 Nenhum bloqueio ou recomendação remanescente. Usuário escolheu execução direta
 com checkpoints. Tarefas 1–7 concluídas e revisadas; próxima: Tarefa 8.
 
+**Atualização de autorização:** após o checkpoint T7, o usuário autorizou
+subagents de implementação, com conferência pelo agente principal, inicialização
+do Git local e commits separados do trabalho existente e futuro. Conventional
+Commits e identificadores/comentários de código em inglês; interface em pt-BR.
+Essa autorização substitui as restrições históricas abaixo sobre Git/commits e
+execução sem agentes. Não autoriza push, criação de remoto ou atualização do S23.
+
 ## 1. Referências e autorização
 
 - Spec aprovada: `docs/superpowers/specs/2026-11-17-monitor-local-c6tag-design.md`.
@@ -25,8 +32,10 @@ com checkpoints. Tarefas 1–7 concluídas e revisadas; próxima: Tarefa 8.
   citados na spec. Tokens e regras estão na spec mesmo se o servidor tiver encerrado.
 - Usar @test-driven-development, @systematic-debugging e
   @verification-before-completion durante a execução.
-- Não existe Git neste diretório. Não criar repositório, worktree ou commits;
-  registrar checkpoints em Markdown. Não descartar arquivos não produzidos nesta execução.
+- Git local inicializado com autorização posterior à T7. Registrar checkpoints
+  em Markdown e commits por etapa; não descartar arquivos não produzidos nesta
+  execução. Usar branch de trabalho e um único implementador por vez para evitar
+  conflitos no workspace Windows/Gradle existente.
 - Planejar/executar builds não autoriza nova instalação ou mudança de permissões
   no S23. Solicitar autorização antes da atualização física.
 - Nenhuma transação bancária será automatizada ou exigida para testar.
@@ -564,7 +573,8 @@ Checkpoint: fluxo principal completo, histórico e ajustes detalhados na tarefa 
 
 ## Tarefa 8 — Histórico, pendências, ajustes e diagnóstico
 
-**Status:** próxima tarefa. Tema persistido e link nativo de avisos já integrados
+**Status:** em andamento, com implementação delegada e revisão obrigatória.
+Tema persistido e link nativo de avisos já integrados
 na Tarefa 7; reaproveitar e ampliar as verificações, sem reimplementar esses fluxos.
 
 **Create:** `MAIN/ui/monitor/{FinancialHistoryScreen,PendingReviewScreen,
@@ -672,8 +682,8 @@ executados com resultados lidos, não uma promessa do implementador.
 - Regras financeiras e ciclos testados em domínio e SQLite/Android.
 - Avisos dependem das permissões/preferências reais e não prometem pontualidade.
 - Relatórios distinguem emulador de S23 e o que permanece pendente.
-- Documentação e revisão final aprovadas; sem commits/merge/limpeza de worktree
-  num diretório que não é repositório.
+- Documentação e revisão final aprovadas; commits locais por etapa com
+  Conventional Commits em inglês, sem push automático.
 
 Executar por agentes por tarefa ou diretamente na sessão, conforme escolha do
 usuário após a revisão deste plano. Nenhuma tarefa de implementação foi iniciada
