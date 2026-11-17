@@ -34,6 +34,20 @@ class MonitorActivityTest {
         compose.onNodeWithText("Informe o saldo de referência").assertIsDisplayed()
     }
 
+    @Test fun historyAndPendingRoutesSurviveRecreationAndReturnToNavigation() {
+        compose.onNodeWithTag("tab-history").performClick()
+        compose.onNodeWithTag("history-filter-all").assertIsDisplayed()
+        compose.onNodeWithTag("open-pending-review").performClick()
+        compose.onNodeWithText("Pendências para revisar").assertIsDisplayed()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText("Pendências para revisar").assertIsDisplayed()
+        compose.onNodeWithText("Voltar ao histórico").performClick()
+        compose.onNodeWithText("Histórico financeiro").assertIsDisplayed()
+        compose.onNodeWithTag("tab-settings").performClick()
+        compose.onNodeWithText("Diagnóstico técnico").assertExists()
+        compose.onNodeWithTag("tab-overview").assertIsDisplayed()
+    }
+
     @Test fun installationIdentityIsPreservedWithUpdatedVisibleNameAndVersion() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         assertEquals("br.com.c6tag.diagnostico", context.packageName)

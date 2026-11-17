@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class MonitorViewModelTest {
     @Test fun readFailureEndsLoadingAndRetryClearsSafeErrorWithoutLosingBalance() = runBlocking {
@@ -56,6 +58,209 @@ class MonitorViewModelTest {
             assertEquals(ThemePreference.DARK, f.coordinator.overview().settings.theme)
             assertNull(changed.overview.reference)
             assertTrue(f.coordinator.history(limit = 3).isEmpty())
+        }
+    }
+
+    @Test fun financialHistoryPagesByLocalIdAndFilterChangesDiscardAnInFlightPage() = runBlocking {
+        Fixture().use { f ->
+            f.configure()
+            repeat(21) { index ->
+                f.now += 100L
+                val session = f.coordinator.beginReference().session!!
+                val expected = f.coordinator.overview().reference!!.id
+                assertNull(f.coordinator.confirmReference(ConfirmReference(
+                    session.id, expected, 20_000L + index, 30_000L, 0L,
+                )).rejection)
+            }
+            val first = f.await { !it.historyLoading && it.overview.reference?.id == 22L }
+            assertEquals(20, first.history.size)
+            assertTrue(first.historyHasMore)
+            assertTrue(first.history.zipWithNext().all { (newer, older) -> newer.id > older.id })
+
+            val entered = CountDownLatch(1)
+            val release = CountDownLatch(1)
+            f.historyEntered = entered
+            f.historyRelease = release
+            f.main { f.vm.loadMoreHistory() }
+            assertTrue(withContext(Dispatchers.IO) { entered.await(5, TimeUnit.SECONDS) })
+            f.main { f.vm.selectHistoryFilter(HistoryFilter.ADJUSTMENTS) }
+            release.countDown()
+            f.historyEntered = null
+            f.historyRelease = null
+            val filtered = f.await {
+                it.historyFilter == HistoryFilter.ADJUSTMENTS && !it.historyLoading && it.history.isNotEmpty()
+            }
+            assertTrue(filtered.history.all { it.kind == FinancialEntryKind.REFERENCE })
+            assertEquals(20, filtered.history.size)
+            assertTrue(filtered.historyHasMore)
+
+            f.now += 100L
+            val next = f.coordinator.beginReference().session!!
+            assertNull(f.coordinator.confirmReference(ConfirmReference(
+                next.id, 22L, 23_000L, 30_000L, 0L,
+            )).rejection)
+            val refreshed = f.await {
+                it.overview.reference?.id == 23L && !it.historyLoading && it.history.firstOrNull()?.referenceId == 23L
+            }
+            assertEquals(20, refreshed.history.size)
+            assertTrue(refreshed.history.zipWithNext().all { (newer, older) -> newer.id > older.id })
+        }
+    }
+
+    @Test fun pendingReviewPagesByDescendingLocalIdAndReturnsToNewestAfterNewObservation() = runBlocking {
+        Fixture().use { f ->
+            suspend fun awaitStage(
+                label: String,
+                predicate: (MonitorUiState) -> Boolean,
+            ): MonitorUiState = try {
+                f.await(predicate)
+            } catch (timeout: TimeoutCancellationException) {
+                throw AssertionError("Timed out at $label; synthetic UI state=${f.vm.uiState.value}", timeout)
+            }
+
+            f.configure()
+            f.recreateViewModel()
+            val session = f.coordinator.beginReference().session!!
+            repeat(21) { index ->
+                f.now += 10L
+                f.record("pending-$index")
+            }
+            val persistedPending = f.coordinator.pending(limit = 100)
+            assertEquals("All synthetic observations should be retained as candidates.", 21, persistedPending.size)
+            f.recreateViewModel()
+            awaitStage("candidate count") { it.overview.pendingCount == 21L }
+            assertEquals(session.id, f.vm.uiState.value.overview.referenceSession?.id)
+            f.main { f.vm.loadPending() }
+            val firstPage = awaitStage("first pending page") { !it.pendingLoading && it.pending.size == 20 && it.pendingHasMore }
+            assertTrue(firstPage.pending.zipWithNext().all { (newer, older) -> newer.id > older.id })
+
+            f.main { f.vm.loadMorePending() }
+            val allPages = awaitStage("second pending page") { !it.pendingLoading && it.pending.size == 21 && !it.pendingHasMore }
+            assertEquals(21, allPages.pending.map { it.id }.distinct().size)
+
+            f.now += 10L
+            f.record("pending-newest")
+            val newestId = f.coordinator.pending(limit = 1).single().id
+            val refreshed = awaitStage("new candidate refresh") {
+                it.overview.pendingCount == 22L && !it.pendingLoading && it.pending.firstOrNull()?.id == newestId
+            }
+            assertEquals(20, refreshed.pending.size)
+            assertTrue(refreshed.pendingHasMore)
+        }
+    }
+
+    @Test fun settingsRejectNegativeLimitAndUnsupportedIntervalsAndPersistValidChoices() = runBlocking {
+        Fixture().use { f ->
+            val initial = f.await { !it.isLoading }.overview.settings
+            f.main {
+                f.vm.editSettingsLimit("-1,00")
+                f.vm.editSettingsRepeat(20)
+                f.vm.editSettingsPause(45)
+                f.vm.saveSettings()
+            }
+            val invalid = f.vm.uiState.value
+            assertTrue(invalid.settingsDraft!!.invalid)
+            assertEquals(initial, f.coordinator.overview().settings)
+
+            f.main {
+                f.vm.editSettingsLimit("450,00")
+                f.vm.editSettingsRepeat(30)
+                f.vm.editSettingsPause(120)
+                f.vm.saveSettings()
+            }
+            val saved = f.await {
+                !it.isBusy && it.overview.settings.limitCents == 45_000L &&
+                    it.overview.settings.alerts.repeatMinutes == 30 &&
+                    it.overview.settings.alerts.pauseMinutes == 120
+            }
+            assertNull(saved.settingsDraft)
+            assertEquals(saved.overview.settings, f.coordinator.overview().settings)
+            assertNull(saved.overview.reference)
+        }
+    }
+
+    @Test fun nativeSettingsLaunchFailuresStaySeparateFromNoticeAndCaptureCapabilities() = runBlocking {
+        Fixture().use { f ->
+            f.await { !it.isLoading }
+            f.main { f.vm.updatePlatform(AuthorizationStatus.NOT_AUTHORIZED, NoticeAccess.DENIED) }
+            f.main { f.vm.reportNoticeSettingsFailure() }
+            val noticeFailure = f.vm.uiState.value
+            assertNotNull(noticeFailure.noticeSettingsError)
+            assertNull(noticeFailure.captureSettingsError)
+            assertEquals(AuthorizationStatus.NOT_AUTHORIZED, noticeFailure.authorization)
+            assertEquals(NoticeAccess.DENIED, noticeFailure.notices)
+
+            f.main { f.vm.reportCaptureSettingsFailure() }
+            val captureFailure = f.vm.uiState.value
+            assertNotNull(captureFailure.captureSettingsError)
+            assertNotNull(captureFailure.noticeSettingsError)
+            assertEquals(AuthorizationStatus.NOT_AUTHORIZED, captureFailure.authorization)
+            assertEquals(NoticeAccess.DENIED, captureFailure.notices)
+
+            f.main { f.vm.clearNoticeSettingsError(); f.vm.clearCaptureSettingsError() }
+            assertNull(f.vm.uiState.value.noticeSettingsError)
+            assertNull(f.vm.uiState.value.captureSettingsError)
+            assertEquals(AuthorizationStatus.NOT_AUTHORIZED, f.vm.uiState.value.authorization)
+            assertEquals(NoticeAccess.DENIED, f.vm.uiState.value.notices)
+        }
+    }
+
+    @Test fun stalePendingSelectionIsInvalidatedAfterExternalReferenceCorrection() = runBlocking {
+        Fixture().use { f ->
+            f.configure()
+            f.main { f.vm.beginReference() }
+            val draft = f.await { it.referenceDraft != null && !it.isBusy }.referenceDraft!!
+            f.now = 1_200L
+            f.record()
+            f.await { it.overview.pendingCount == 1L }
+            f.main { f.vm.loadPending() }
+            val pending = f.await { !it.pendingLoading && it.pending.isNotEmpty() }.pending.first()
+            f.main { f.vm.openPending(pending.id) }
+            assertEquals(1L, f.vm.uiState.value.pendingSelection!!.expectedReferenceId)
+
+            f.now = 1_300L
+            assertNull(f.coordinator.confirmReference(ConfirmReference(
+                draft.session.id, 1L, 25_000L, 30_000L, 0L,
+            )).rejection)
+            val stale = f.await { it.pendingSelection?.stale == true && it.overview.reference?.id == 2L }
+            assertNull(stale.pendingSelection!!.confirmation)
+            assertEquals(25_000L, stale.overview.balanceCents)
+            f.main { f.vm.requestPendingDecision(PendingChoice.CONFIRM_NEW); f.vm.confirmPendingDecision() }
+            assertEquals(25_000L, f.coordinator.overview().balanceCents)
+            assertEquals(1L, f.coordinator.overview().pendingCount)
+        }
+    }
+
+    @Test fun pendingWithRemovedRawEvidenceShowsPersistedSummaryAndCanBeExplicitlyResolved() = runBlocking {
+        Fixture().use { f ->
+            f.configure()
+            f.main { f.vm.beginReference() }
+            val draft = f.await { it.referenceDraft != null && !it.isBusy }.referenceDraft!!
+            f.now = 1_200L
+            f.record()
+            f.await { it.overview.pendingCount == 1L }
+            f.now = 1_300L
+            assertNull(f.coordinator.confirmReference(ConfirmReference(
+                draft.session.id, 1L, 20_000L, 30_000L, 0L,
+            )).rejection)
+            f.recorder.clear()
+            f.main { f.vm.loadPending() }
+            val missingRaw = f.await { !it.pendingLoading && it.pending.isNotEmpty() }
+            assertFalse(missingRaw.pending.single().rawEvidenceAvailable)
+            assertEquals(20_000L, missingRaw.overview.balanceCents)
+            assertEquals(FinancialEntryKind.REFERENCE, f.coordinator.history(limit = 1).single().kind)
+
+            f.main { f.vm.openPending(missingRaw.pending.single().id) }
+            assertFalse(f.vm.uiState.value.pendingSelection!!.movement.rawEvidenceAvailable)
+            f.main {
+                f.vm.requestPendingDecision(PendingChoice.CONFIRM_NEW)
+                f.vm.confirmPendingDecision()
+                f.vm.confirmPendingDecision()
+            }
+            val applied = f.await { !it.isBusy && it.overview.balanceCents == 21_000L }
+            assertNull(applied.pendingSelection)
+            assertEquals(0L, applied.overview.pendingCount)
+            assertEquals(21_000L, f.coordinator.overview().balanceCents)
         }
     }
 
@@ -205,18 +410,30 @@ class MonitorViewModelTest {
         @Volatile var now = 1_000L
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val database = DiagnosticDatabase(context, name, "synthetic.bank", { now })
-        private val recorder = DiagnosticRecorder(database, "synthetic.bank", Dispatchers.IO, scope)
+        val recorder = DiagnosticRecorder(database, "synthetic.bank", Dispatchers.IO, scope)
         @Volatile var failReads = failReadsInitially
+        @Volatile var historyEntered: CountDownLatch? = null
+        @Volatile var historyRelease: CountDownLatch? = null
         private val store = object : MonitorStore by SqliteMonitorStore(database) {
             override fun history(beforeId: Long?, limit: Int, filter: HistoryFilter): List<FinancialEntry> {
                 if (failReads) error("raw private exception")
+                historyEntered?.countDown()
+                historyRelease?.await(5, TimeUnit.SECONDS)
                 return SqliteMonitorStore(database).history(beforeId, limit, filter)
             }
         }
         val coordinator = MonitorCoordinator(recorder, store, DisabledMonitorAlertEffects, scope, { now })
         private val owner = ViewModelStore()
-        val vm: MonitorViewModel
+        lateinit var vm: MonitorViewModel
+            private set
         init {
+            attachViewModel()
+        }
+        fun recreateViewModel() {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync { owner.clear() }
+            attachViewModel()
+        }
+        private fun attachViewModel() {
             var created: MonitorViewModel? = null
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
                 created = ViewModelProvider(owner, object : ViewModelProvider.Factory {
@@ -239,10 +456,10 @@ class MonitorViewModelTest {
             main { vm.confirmReference() }
             await { it.overview.reference != null && !it.isBusy }
         }
-        fun record() {
+        fun record(key: String = "synthetic-pix") {
             recorder.recordNotification("synthetic.bank") {
                 DiagnosticEvent(DiagnosticEventType.POSTED_OR_UPDATED, now, packageName = "synthetic.bank",
-                    postedAtMs = now, key = "synthetic-pix", title = "Você recebeu um Pix",
+                    postedAtMs = now, key = key, title = "Você recebeu um Pix",
                     text = "Pix recebido no valor de R$ 10,00.")
             }
         }
