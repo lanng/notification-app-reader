@@ -1,8 +1,8 @@
 # Monitor remoto — desenho para aprovação
 
 **Data:** 2026-11-18.
-**Estado:** consolidação das decisões; revisão independente e aprovação escrita
-pendentes. Não é autorização de implementação, acesso à VPS ou implantação.
+**Estado:** revisão independente aprovada na segunda rodada; aprovação escrita
+do usuário pendente. Não é autorização de implementação, acesso à VPS ou implantação.
 
 ## 1. Objetivo e escolha arquitetural
 

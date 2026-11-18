@@ -168,13 +168,16 @@ Essa alternativa de polling não foi selecionada nem implementada.
 
 ## Consolidação
 
-Especificação em elaboração/revisão:
+Especificação revisada, aguardando aprovação do usuário:
 [`superpowers/specs/2026-11-18-remote-monitor-design.md`](superpowers/specs/2026-11-18-remote-monitor-design.md).
 As decisões confirmadas acima são distintas das propostas técnicas indicadas no
 documento para aprovação escrita. Nenhuma alteração de execução foi realizada.
 Primeira revisão independente apontou coordenação de avisos local/remoto e
 continuidade de ciclo na troca de host. As regras propostas foram explicitadas
-na especificação e seguem em nova revisão; ainda dependem de aprovação do usuário.
+na especificação. A segunda revisão foi aprovada, sem bloqueios para planejamento;
+as propostas ainda dependem de aprovação do usuário. A revisão destacou que
+encerramento por redução do limite exige confirmação explícita e não deve ser
+confundido com recuperação automática por uma estimativa confiável.
 
 ## Checklist
 
@@ -196,7 +199,7 @@ na especificação e seguem em nova revisão; ainda dependem de aprovação do u
 - [x] Comparar alternativas de arquitetura e registrar a escolha do usuário.
 - [x] Apresentar e confirmar as regras principais; separar propostas adicionais.
 - [x] Escrever a especificação como desenho para aprovação.
-- [ ] Commitar a especificação e as decisões documentadas.
-- [ ] Concluir revisão independente de consistência da especificação.
+- [x] Commitar a especificação e as decisões documentadas (`cebdcc3`).
+- [x] Concluir revisão independente de consistência da especificação (segunda rodada).
 - [ ] Obter revisão e aprovação do documento escrito pelo usuário.
 - [ ] Após aprovação, preparar plano de implementação com os gates necessários.
