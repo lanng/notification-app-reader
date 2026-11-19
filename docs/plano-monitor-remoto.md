@@ -168,6 +168,14 @@ Essa alternativa de polling não foi selecionada nem implementada.
 
 ## Consolidação
 
+### Separação dos repositórios e início do backend
+
+O spec descreve o sistema integrado, mas este repositório permanece dedicado
+ao app Android. O backend Laravel terá repositório e plano próprios.
+Antes de começar qualquer código do backend, avisar o usuário e aguardar que
+ele crie a pasta no local correto e informe o caminho. Não criar a pasta,
+inicializar o backend ou escolher seu destino implicitamente.
+
 Especificação revisada, aguardando aprovação do usuário:
 [`superpowers/specs/2026-11-18-remote-monitor-design.md`](superpowers/specs/2026-11-18-remote-monitor-design.md).
 As decisões confirmadas acima são distintas das propostas técnicas indicadas no

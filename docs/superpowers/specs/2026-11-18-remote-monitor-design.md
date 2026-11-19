@@ -354,6 +354,13 @@ Não apresentar esta aplicação como única proteção contra perdas/parada de 
 
 ## 10. Próxima etapa
 
+Este documento descreve o sistema integrado, não um monorepo: Android permanece
+neste repositório; Laravel será desenvolvido em repositório separado, com plano
+próprio e contrato de integração compatível. Antes de escrever qualquer código
+do backend, avisar o usuário e aguardar que ele crie a pasta no local correto e
+informe seu caminho. Não criar/inicializar o backend nem escolher seu destino
+implicitamente.
+
 Revisar este desenho, incluindo os defaults técnicos propostos, com o usuário.
 Só após aprovação escrita coletar os dados de preflight e preparar um plano
 de implementação faseado, com gates de áudio, backend, sincronização e validação.
