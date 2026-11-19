@@ -22,6 +22,7 @@ import br.com.c6tag.diagnostico.ui.monitor.MonitorUiState
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -185,6 +186,64 @@ class AlertProbeScreenTest {
         assertTrue(platform.published.isEmpty())
         assertTrue(platform.createdChannels.isEmpty())
         assertEquals(0, platform.cancelAttempts.get())
+    }
+
+    @Test
+    fun blockedChannelIsVisibleDisablesStartAndKeepsExplicitSettingsActionAvailable() {
+        val blockedChannel = NotificationChannel(
+            ProbeNotificationController.CHANNEL_ID,
+            "synthetic blocked probe channel",
+            android.app.NotificationManager.IMPORTANCE_NONE,
+        )
+        platform.channelValue = blockedChannel
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithText("Permissão de notificações: concedida.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Notificações do app: ativadas.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Canal de notificações bloqueado no Android.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("probe-settings")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+
+        assertTrue("Opening/recreating must not publish", platform.published.isEmpty())
+        assertTrue("Opening/recreating must not create or reset the blocked channel", platform.createdChannels.isEmpty())
+        assertEquals("Opening/recreating must not cancel", 0, platform.cancelAttempts.get())
+        assertSame(blockedChannel, platform.channelValue)
+
+        var settingsRequests = 0
+        compose.activity.setContent {
+            MonitorTheme {
+                AlertProbeScreen(
+                    state = AlertProbeScreenState(
+                        status = ProbeControllerStatus(
+                            permission = ProbeCapabilityStatus.GRANTED,
+                            appNotifications = ProbeCapabilityStatus.GRANTED,
+                            channel = ProbeChannelStatus.BLOCKED,
+                            storedOccurrenceId = null,
+                        ),
+                    ),
+                    actions = AlertProbeScreenActions(
+                        onStart = {},
+                        onStop = {},
+                        onRequestPermission = {},
+                        onOpenSettings = { settingsRequests++ },
+                        onBack = {},
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("probe-settings").performScrollTo().performClick()
+
+        assertEquals("The explicit settings action must call the fake callback", 1, settingsRequests)
+        assertTrue("The component callback must not publish", platform.published.isEmpty())
+        assertTrue("The component callback must not create or reset the channel", platform.createdChannels.isEmpty())
+        assertEquals("The component callback must not cancel", 0, platform.cancelAttempts.get())
+        assertSame(blockedChannel, platform.channelValue)
     }
 
     @Test
