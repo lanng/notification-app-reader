@@ -215,10 +215,28 @@ confundido com recuperação automática por uma estimativa confiável.
 
 ### Planejamento — próximo checkpoint
 
-- [ ] Receber resumo sanitizado da VPS: sistema, PHP, banco, CPU/RAM/disco,
-  gerenciamento, cron e supervisão de processos, sem credenciais.
+- [x] Receber resumo inicial sanitizado: Ubuntu, PHP 8.3, PostgreSQL na VPS,
+  MySQL no WSL, espaço disponível informado como folgado, cron e Supervisor já
+  utilizados. Informação declarada pelo usuário, sem acesso ou medições.
+- [ ] Antes do backend/deploy, confirmar versão do PostgreSQL, extensões PHP
+  (inclusive `pdo_pgsql`), recursos/consumo disponíveis, isolamento e backups.
 - [ ] Definir contrato de integração e planos separados por repositório.
 - [ ] Mapear arquivos/tarefas e evidência verificável, incluindo regressão local,
   falhas de rede, autorização, agenda, deduplicação e gate do áudio.
 - [ ] Revisar o plano antes da passagem à execução.
 - [ ] Antes de qualquer código do backend, avisar e aguardar a pasta do usuário.
+
+PHP 8.3 é compatível com o mínimo do Laravel 13. Planejar PostgreSQL como banco
+alvo e testes de integração/concorrência em PostgreSQL; MySQL local não é prova
+de comportamento em produção. Não instalar outro banco nem alterar o MySQL
+existente sem consentimento. Fontes e gates constam no roteiro de execução.
+
+Documentos de planejamento:
+
+- [Roteiro entre repositórios](superpowers/plans/2026-11-18-remote-monitor-roadmap.md):
+  Android independente → backend separado → Android integrado → homologação.
+- [Plano executável da fundação Android](superpowers/plans/2026-11-18-remote-mobile-foundation.md):
+  em revisão independente; não implementa toda a spec nem cria o backend.
+
+O plano Laravel detalhado será preparado no contexto da pasta/repositório
+confirmados pelo usuário. Esse roteiro não autoriza inicializá-los.
