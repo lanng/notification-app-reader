@@ -3,6 +3,7 @@ package br.com.c6tag.diagnostico.remote.probe
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
@@ -61,6 +62,61 @@ class ProbeStopReceiverTest {
 
         assertEquals(occurrenceId, store.currentOccurrenceId())
         assertTrue(platform.cancelledIds.isEmpty())
+    }
+
+    @Test
+    fun matchingStopAfterProcessIdentityChangeCancelsOnlyProbeAndClearsSessionMetadata() {
+        val creatorStore = ProbeSessionStore(context, preferences)
+        val creatorController = ProbeNotificationController(
+            context = context,
+            store = creatorStore,
+            platformOverride = platform,
+            monotonicClock = { 10_000L },
+            processIdentity = "creator-process",
+        )
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, creatorController.submitCritical())
+        val occurrenceId = requireNotNull(creatorStore.currentOccurrenceId())
+        assertEquals("creator-process", creatorStore.currentOccurrence()?.processIdentity)
+        assertEquals(
+            setOf(
+                "current_occurrence_id",
+                "current_occurrence_monotonic_start",
+                "current_occurrence_process_identity",
+            ),
+            preferences.all.keys,
+        )
+
+        val receiverStore = ProbeSessionStore(context, preferences)
+        val receiverController = ProbeNotificationController(
+            context = context,
+            store = receiverStore,
+            platformOverride = platform,
+            monotonicClock = { 10_100L },
+            processIdentity = "receiver-process",
+        )
+        val oldProcessShowIntent = Intent(context, AlertProbeActivity::class.java).apply {
+            action = ProbeNotificationController.SHOW_ALERT_ACTION
+            data = Uri.parse("monitor-probe://screen/$occurrenceId")
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+        }
+        assertFalse(receiverController.isCurrentPresentationSession(occurrenceId))
+        assertFalse(receiverController.isCurrentPresentationIntent(oldProcessShowIntent))
+
+        val receiver = ProbeStopReceiver { receiverController }
+        receiver.onReceive(context, stopIntent(UUID.randomUUID().toString()))
+
+        assertEquals("Wrong ID must leave the prior-process probe intact", occurrenceId, receiverStore.currentOccurrenceId())
+        assertTrue(platform.cancelAttempts.isEmpty())
+        assertEquals(1, platform.published.size)
+
+        receiver.onReceive(context, stopIntent(occurrenceId))
+
+        assertNull(receiverStore.currentOccurrenceId())
+        assertNull(receiverStore.currentOccurrence())
+        assertTrue("Matching stop must clear the durable ID and metadata", preferences.all.isEmpty())
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelAttempts)
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds)
+        assertEquals("Receiver stop must not publish or replace a notification", 1, platform.published.size)
     }
 
     @Test

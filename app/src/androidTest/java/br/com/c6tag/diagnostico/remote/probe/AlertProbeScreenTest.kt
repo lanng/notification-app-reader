@@ -26,6 +26,7 @@ import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -498,6 +499,94 @@ class AlertProbeScreenTest {
     }
 
     @Test
+    fun currentSessionOnNewIntentShowsStopOnlyPresentationAndValidReentryDoesNotRepublish() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val publishCount = platform.published.size
+
+        deliverNewIntent(showAlertIntent(occurrenceId))
+
+        assertEquals(1, windowPresentation.shows)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+        compose.onNodeWithTag("probe-start").assertDoesNotExist()
+        compose.onNodeWithTag("probe-settings").assertDoesNotExist()
+        compose.onNodeWithTag("probe-permission").assertDoesNotExist()
+        compose.onNodeWithTag("probe-back").assertDoesNotExist()
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+
+        // A stale ID cannot tear down a still-valid presentation.
+        deliverNewIntent(showAlertIntent(UUID.randomUUID().toString()))
+
+        assertEquals(0, windowPresentation.clears)
+        assertEquals(1, windowPresentation.shows)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+        compose.activityRule.scenario.onActivity { assertFalse(it.isFinishing) }
+
+        deliverNewIntent(showAlertIntent(occurrenceId))
+
+        assertEquals("Reentry may refresh presentation but not republish", 2, windowPresentation.shows)
+        assertEquals(publishCount, platform.published.size)
+        assertEquals("Presentation reentry must not cancel", 0, platform.cancelAttempts.get())
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+    }
+
+    @Test
+    fun staleShowIntentOnNewIntentCannotAuthorizePresentationWhenNotPresenting() {
+        val controller = testController()
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val currentOccurrenceId = requireNotNull(store.currentOccurrenceId())
+
+        deliverNewIntent(showAlertIntent(UUID.randomUUID().toString()))
+
+        assertEquals(currentOccurrenceId, store.currentOccurrenceId())
+        assertEquals(0, windowPresentation.shows)
+        assertEquals(0, windowPresentation.clears)
+        compose.onNodeWithTag("probe-presentation-stop").assertDoesNotExist()
+        compose.onNodeWithTag("probe-start").assertExists()
+        compose.activityRule.scenario.onActivity { assertFalse(it.isFinishing) }
+        assertEquals(1, platform.published.size)
+        assertEquals(0, platform.cancelAttempts.get())
+    }
+
+    @Test
+    fun replacedSessionMakesOldPresentationLeaveWithoutCancellingReplacement() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val oldOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(oldOccurrenceId))
+        assertEquals(1, windowPresentation.shows)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val replacementId = requireNotNull(store.currentOccurrenceId())
+        assertNotEquals(oldOccurrenceId, replacementId)
+        val cancelAttemptsBeforeStaleIntent = platform.cancelAttempts.get()
+        val publicationsBeforeStaleIntent = platform.published.size
+
+        deliverNewIntent(showAlertIntent(oldOccurrenceId))
+
+        assertEquals("A stale callback must preserve the replacement session", replacementId, store.currentOccurrenceId())
+        assertEquals("A stale callback must not cancel the replacement", cancelAttemptsBeforeStaleIntent, platform.cancelAttempts.get())
+        assertEquals("A stale callback must not republish", publicationsBeforeStaleIntent, platform.published.size)
+        assertEquals(1, windowPresentation.clears)
+        assertEquals(1, windowPresentation.shows)
+        compose.activityRule.scenario.onActivity { assertTrue(it.isFinishing) }
+    }
+
+    @Test
     fun directlyLaunchedCurrentSessionShowsSyntheticPresentationAndExpiresWithoutCancelling() {
         fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
         val controller = testController()
@@ -554,6 +643,49 @@ class AlertProbeScreenTest {
 
     private fun tapText(text: String) {
         compose.onNodeWithText(text).performScrollTo().performClick()
+    }
+
+    private fun showAlertIntent(occurrenceId: String) =
+        Intent(context, AlertProbeActivity::class.java).apply {
+            action = ProbeNotificationController.SHOW_ALERT_ACTION
+            data = Uri.parse("monitor-probe://screen/$occurrenceId")
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+
+    private fun deliverNewIntent(intent: Intent) {
+        val callback = AlertProbeActivity::class.java
+            .getDeclaredMethod("onNewIntent", Intent::class.java)
+            .apply { isAccessible = true }
+        compose.activityRule.scenario.onActivity { activity ->
+            val originalIntent = Intent(activity.intent)
+            assertFalse(
+                "The SHOW_ALERT intent should differ from ActivityScenario's original launch filter",
+                originalIntent.filterEquals(intent),
+            )
+            try {
+                callback.invoke(activity, intent)
+                val currentIntent = activity.intent
+                val currentMatchesIncoming = currentIntent.filterEquals(intent)
+                val currentMatchesOriginal = currentIntent.filterEquals(originalIntent)
+                assertTrue(
+                    "onNewIntent must install the delivered intent before the test restores the launch intent",
+                    currentMatchesIncoming,
+                )
+                assertFalse(
+                    "The delivered intent filter should differ from the launch filter during callback handling",
+                    currentMatchesOriginal,
+                )
+            } finally {
+                // ActivityScenario's lifecycle observer filters by the original launch intent.
+                // Restore this harness state only after exercising onNewIntent, before returning
+                // from the callback; do not alter the Activity's production setIntent behavior.
+                activity.intent = originalIntent
+                val restoredMatchesOriginal = activity.intent.filterEquals(originalIntent)
+                assertTrue("The original ActivityScenario intent filter must be restored", restoredMatchesOriginal)
+            }
+        }
+        compose.waitForIdle()
     }
 
     private fun testController() = ProbeNotificationController(
