@@ -20,9 +20,11 @@ internal class AlertProbeActivity : ComponentActivity() {
     private lateinit var controller: ProbeNotificationController
     private var probeStatus by mutableStateOf<ProbeControllerStatus?>(null)
     private var message by mutableStateOf<String?>(null)
+    private var restoredOccurrenceHint: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        restoredOccurrenceHint = savedInstanceState?.getString(STATE_OCCURRENCE_HINT)
         controller = ProbeDependencies.controllerFactory(applicationContext)
         refreshStatus()
         setContent {
@@ -35,6 +37,7 @@ internal class AlertProbeActivity : ComponentActivity() {
                 permission = ProbeCapabilityStatus.UNKNOWN,
                 appNotifications = ProbeCapabilityStatus.UNKNOWN,
                 channel = ProbeChannelStatus.UNKNOWN,
+                sessionReadStatus = ProbeSessionReadStatus.UNKNOWN,
                 storedOccurrenceId = null,
             )
             MonitorTheme {
@@ -58,6 +61,13 @@ internal class AlertProbeActivity : ComponentActivity() {
                     ),
                 )
             }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        (probeStatus?.storedOccurrenceId ?: restoredOccurrenceHint)?.let {
+            outState.putString(STATE_OCCURRENCE_HINT, it)
         }
     }
 
@@ -109,16 +119,22 @@ internal class AlertProbeActivity : ComponentActivity() {
     }
 
     private fun refreshStatus() {
-        val previousOccurrenceId = probeStatus?.storedOccurrenceId
+        val previousOccurrenceId = probeStatus?.storedOccurrenceId ?: restoredOccurrenceHint
         probeStatus = try {
-            controller.readStatus()
+            controller.readStatus(previousOccurrenceId)
         } catch (_: Exception) {
             ProbeControllerStatus(
                 permission = ProbeCapabilityStatus.UNKNOWN,
                 appNotifications = ProbeCapabilityStatus.UNKNOWN,
                 channel = ProbeChannelStatus.UNKNOWN,
+                sessionReadStatus = ProbeSessionReadStatus.UNKNOWN,
                 storedOccurrenceId = previousOccurrenceId,
             )
         }
+        restoredOccurrenceHint = null
+    }
+
+    private companion object {
+        const val STATE_OCCURRENCE_HINT = "probe_occurrence_presentation_hint"
     }
 }

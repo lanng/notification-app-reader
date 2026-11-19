@@ -25,6 +25,7 @@ class ProbeNotificationTest {
     private val context: Context
         get() = InstrumentationRegistry.getInstrumentation().targetContext
     private lateinit var preferences: android.content.SharedPreferences
+    private lateinit var readFailingPreferences: ReadFailingPreferences
     private lateinit var store: ProbeSessionStore
     private lateinit var platform: FakePlatform
     private lateinit var controller: ProbeNotificationController
@@ -35,7 +36,8 @@ class ProbeNotificationTest {
             "probe-test-${UUID.randomUUID()}",
             Context.MODE_PRIVATE,
         )
-        store = ProbeSessionStore(context, preferences)
+        readFailingPreferences = ReadFailingPreferences(preferences)
+        store = ProbeSessionStore(context, readFailingPreferences)
         platform = FakePlatform()
         controller = ProbeNotificationController(context, store, platform)
     }
@@ -113,6 +115,7 @@ class ProbeNotificationTest {
         assertEquals(ProbeCapabilityStatus.GRANTED, initial.permission)
         assertEquals(ProbeCapabilityStatus.GRANTED, initial.appNotifications)
         assertEquals(ProbeChannelStatus.NOT_CREATED, initial.channel)
+        assertEquals(ProbeSessionReadStatus.CONFIRMED_EMPTY, initial.sessionReadStatus)
         assertNull(initial.storedOccurrenceId)
         assertTrue(platform.createdChannels.isEmpty())
         assertTrue(platform.published.isEmpty())
@@ -151,9 +154,81 @@ class ProbeNotificationTest {
         assertEquals(ProbeCapabilityStatus.UNKNOWN, unknown.permission)
         assertEquals(ProbeCapabilityStatus.UNKNOWN, unknown.appNotifications)
         assertEquals(ProbeChannelStatus.UNKNOWN, unknown.channel)
+        assertEquals(ProbeSessionReadStatus.OCCURRENCE_PRESENT, unknown.sessionReadStatus)
         assertEquals("platform read failures must not hide the stored stop identity", occurrenceId, unknown.storedOccurrenceId)
         assertEquals(1, platform.published.size)
         assertTrue(platform.createdChannels.isEmpty())
+        assertTrue(platform.cancelAttempts.isEmpty())
+    }
+
+    @Test
+    fun statusReadFailureRetainsPreviouslyKnownOccurrenceForPresentation() {
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val knownStatus = controller.readStatus()
+        assertEquals(ProbeSessionReadStatus.OCCURRENCE_PRESENT, knownStatus.sessionReadStatus)
+        assertEquals(occurrenceId, knownStatus.storedOccurrenceId)
+
+        readFailingPreferences.failStringReads = true
+        val status = controller.readStatus()
+
+        assertEquals(
+            "A failed storage read must not erase a previously known stop hint",
+            occurrenceId,
+            status.storedOccurrenceId,
+        )
+        assertEquals(ProbeSessionReadStatus.UNKNOWN, status.sessionReadStatus)
+        assertEquals(1, platform.published.size)
+        assertTrue(platform.cancelAttempts.isEmpty())
+    }
+
+    @Test
+    fun stopReadFailureReturnsFalseWithoutCancellingAndMatchingRetryWorksAfterRecovery() {
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+
+        readFailingPreferences.failStringReads = true
+
+        assertFalse(controller.stop(occurrenceId))
+        assertTrue("An unreadable owner must never be cancelled", platform.cancelAttempts.isEmpty())
+
+        readFailingPreferences.failStringReads = false
+        assertTrue(controller.stop(occurrenceId))
+
+        assertNull(store.currentOccurrenceId())
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds)
+    }
+
+    @Test
+    fun staleStopCannotCancelReplacementAfterStorageReadRecovers() {
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val oldOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        val replacementId = "synthetic-replacement-occurrence"
+        val independentlyReadableStore = ProbeSessionStore(context, preferences)
+
+        readFailingPreferences.failStringReads = true
+        assertTrue(independentlyReadableStore.persistOccurrenceId(replacementId))
+
+        assertFalse(controller.stop(oldOccurrenceId))
+        assertTrue("A failed read must not cancel an unknown replacement", platform.cancelAttempts.isEmpty())
+
+        readFailingPreferences.failStringReads = false
+        assertFalse(controller.stop(oldOccurrenceId))
+        assertEquals(replacementId, store.currentOccurrenceId())
+        assertTrue("A stale stop hint must not cancel the replacement", platform.cancelAttempts.isEmpty())
+        assertTrue(controller.stop(replacementId))
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds)
+    }
+
+    @Test
+    fun initialSessionReadFailureHasNoOccurrenceHint() {
+        readFailingPreferences.failStringReads = true
+
+        val status = controller.readStatus()
+
+        assertEquals(ProbeSessionReadStatus.UNKNOWN, status.sessionReadStatus)
+        assertNull(status.storedOccurrenceId)
+        assertTrue(platform.published.isEmpty())
         assertTrue(platform.cancelAttempts.isEmpty())
     }
 
@@ -494,6 +569,18 @@ class ProbeNotificationTest {
 
                 override fun commit(): Boolean = false
             }
+        }
+    }
+
+    private class ReadFailingPreferences(
+        private val delegate: SharedPreferences,
+    ) : SharedPreferences by delegate {
+        @Volatile
+        var failStringReads = false
+
+        override fun getString(key: String, defValue: String?): String? {
+            check(!failStringReads) { "synthetic session read failure" }
+            return delegate.getString(key, defValue)
         }
     }
 }

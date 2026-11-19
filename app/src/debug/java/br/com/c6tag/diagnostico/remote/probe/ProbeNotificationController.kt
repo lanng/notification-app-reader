@@ -40,10 +40,17 @@ internal enum class ProbeChannelStatus {
     UNKNOWN,
 }
 
+internal enum class ProbeSessionReadStatus {
+    CONFIRMED_EMPTY,
+    OCCURRENCE_PRESENT,
+    UNKNOWN,
+}
+
 internal data class ProbeControllerStatus(
     val permission: ProbeCapabilityStatus,
     val appNotifications: ProbeCapabilityStatus,
     val channel: ProbeChannelStatus,
+    val sessionReadStatus: ProbeSessionReadStatus,
     val storedOccurrenceId: String?,
 )
 
@@ -67,12 +74,25 @@ internal class ProbeNotificationController(
     private val notificationFactory = notificationFactoryOverride ?: { occurrenceId ->
         buildNotification(occurrenceId)
     }
+    private var lastKnownOccurrenceId: String? = null
 
-    fun readStatus(): ProbeControllerStatus {
-        val occurrenceId = try {
-            store.currentOccurrenceId()
-        } catch (_: Exception) {
-            null
+    /**
+     * A previous ID preserves the UI retry hint only; [stop] always revalidates stored ownership.
+     */
+    fun readStatus(previouslyKnownOccurrenceId: String? = null): ProbeControllerStatus {
+        val (occurrenceId, sessionReadStatus) = synchronized(ProbeSessionStore.processLock) {
+            try {
+                val currentOccurrenceId = store.currentOccurrenceId()
+                lastKnownOccurrenceId = currentOccurrenceId
+                currentOccurrenceId to if (currentOccurrenceId == null) {
+                    ProbeSessionReadStatus.CONFIRMED_EMPTY
+                } else {
+                    ProbeSessionReadStatus.OCCURRENCE_PRESENT
+                }
+            } catch (_: Exception) {
+                (lastKnownOccurrenceId ?: previouslyKnownOccurrenceId) to
+                    ProbeSessionReadStatus.UNKNOWN
+            }
         }
         val permission = readCapability { platform.permissionGranted() }
         val appNotifications = readCapability { platform.notificationsEnabled() }
@@ -88,7 +108,13 @@ internal class ProbeNotificationController(
         } catch (_: Exception) {
             ProbeChannelStatus.UNKNOWN
         }
-        return ProbeControllerStatus(permission, appNotifications, channel, occurrenceId)
+        return ProbeControllerStatus(
+            permission,
+            appNotifications,
+            channel,
+            sessionReadStatus,
+            occurrenceId,
+        )
     }
 
     fun submitCritical(): ProbeSubmissionOutcome = synchronized(ProbeSessionStore.processLock) {
@@ -114,14 +140,15 @@ internal class ProbeNotificationController(
                 store.clearCurrentIfMatches(occurrenceId)
                 return@synchronized ProbeSubmissionOutcome.FAILED
             }
+            lastKnownOccurrenceId = occurrenceId
 
             val notification = try {
                 notificationFactory(occurrenceId)
             } catch (_: SecurityException) {
-                store.clearCurrentIfMatches(occurrenceId)
+                if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
                 return@synchronized ProbeSubmissionOutcome.PERMISSION_DENIED
             } catch (_: Exception) {
-                store.clearCurrentIfMatches(occurrenceId)
+                if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
                 return@synchronized ProbeSubmissionOutcome.FAILED
             }
             try {
@@ -143,10 +170,14 @@ internal class ProbeNotificationController(
 
     fun stop(expectedOccurrenceId: String): Boolean =
         synchronized(ProbeSessionStore.processLock) {
-            if (store.currentOccurrenceId() != expectedOccurrenceId) return@synchronized false
             try {
+                val currentOccurrenceId = store.currentOccurrenceId()
+                lastKnownOccurrenceId = currentOccurrenceId
+                if (currentOccurrenceId != expectedOccurrenceId) return@synchronized false
                 platform.cancel(NOTIFICATION_ID)
-                store.clearCurrentIfMatches(expectedOccurrenceId)
+                val cleared = store.clearCurrentIfMatches(expectedOccurrenceId)
+                if (cleared) lastKnownOccurrenceId = null
+                cleared
             } catch (_: Exception) {
                 false
             }
@@ -160,7 +191,7 @@ internal class ProbeNotificationController(
             // Keep the matching identity so the stop action can retry cancellation.
             return
         }
-        store.clearCurrentIfMatches(occurrenceId)
+        if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
     }
 
     private inline fun readCapability(read: () -> Boolean): ProbeCapabilityStatus =

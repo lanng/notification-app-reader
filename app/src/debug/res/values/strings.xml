@@ -20,6 +20,7 @@
     <string name="probe_channel_available">Canal de notificações disponível; as preferências continuam sob seu controle.</string>
     <string name="probe_channel_blocked">Canal de notificações bloqueado no Android.</string>
     <string name="probe_channel_unknown">Não foi possível consultar o canal de notificações.</string>
+    <string name="probe_session_unavailable">Não foi possível consultar o estado do teste de alerta. Tente novamente.</string>
     <string name="probe_channel_explanation">As configurações do app e do canal são controladas pelo Android e por você. Abrir esta tela não cria nem altera o canal.</string>
     <string name="probe_start_test">Iniciar teste</string>
     <string name="probe_start_requested">Solicitação enviada ao Android; isso não confirma entrega nem som.</string>

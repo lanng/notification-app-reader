@@ -40,7 +40,8 @@ internal fun AlertProbeScreen(
     state: AlertProbeScreenState,
     actions: AlertProbeScreenActions,
 ) {
-    val canStart = state.status.storedOccurrenceId == null &&
+    val canStart = state.status.sessionReadStatus == ProbeSessionReadStatus.CONFIRMED_EMPTY &&
+        state.status.storedOccurrenceId == null &&
         state.status.permission != ProbeCapabilityStatus.DENIED &&
         state.status.appNotifications != ProbeCapabilityStatus.DENIED &&
         state.status.channel != ProbeChannelStatus.BLOCKED
@@ -81,6 +82,9 @@ internal fun AlertProbeScreen(
                 },
             ),
         )
+        if (state.status.sessionReadStatus == ProbeSessionReadStatus.UNKNOWN) {
+            Text(stringResource(R.string.probe_session_unavailable))
+        }
         Button(
             onClick = actions.onStart,
             enabled = canStart,

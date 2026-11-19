@@ -49,7 +49,8 @@ class AlertProbeScreenTest {
     private val preferences by lazy {
         context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     }
-    private val store by lazy { ProbeSessionStore(context, preferences) }
+    private val readFailingPreferences by lazy { ReadFailingPreferences(preferences) }
+    private val store by lazy { ProbeSessionStore(context, readFailingPreferences) }
     private lateinit var previousFactory: (Context) -> ProbeNotificationController
 
     private val factoryRule = object : TestRule {
@@ -189,6 +190,48 @@ class AlertProbeScreenTest {
     }
 
     @Test
+    fun unreadableSessionWithoutKnownOccurrenceDisablesStartAndShowsUnavailable() {
+        readFailingPreferences.failStringReads = true
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithTag("probe-start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Não foi possível consultar o estado do teste de alerta. Tente novamente.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-stop").assertIsNotDisplayed()
+        assertTrue(platform.published.isEmpty())
+        assertEquals(0, platform.cancelAttempts.get())
+    }
+
+    @Test
+    fun unreadableKnownSessionKeepsStopAndBlocksStartUntilSafeRetry() {
+        tapText("Iniciar teste")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() != null }
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+
+        readFailingPreferences.failStringReads = true
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithTag("probe-stop").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Não foi possível consultar o estado do teste de alerta. Tente novamente.")
+            .performScrollTo().assertIsDisplayed()
+        assertEquals(0, platform.cancelAttempts.get())
+
+        tapText("Parar som")
+        compose.onNodeWithTag("probe-stop").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Não foi possível consultar o estado do teste de alerta. Tente novamente.")
+            .performScrollTo().assertIsDisplayed()
+        assertEquals("A storage read failure must not reach platform cancellation", 0, platform.cancelAttempts.get())
+
+        readFailingPreferences.failStringReads = false
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        tapText("Parar som")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() == null }
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals(1, platform.published.size)
+    }
+
+    @Test
     fun blockedChannelIsVisibleDisablesStartAndKeepsExplicitSettingsActionAvailable() {
         val blockedChannel = NotificationChannel(
             ProbeNotificationController.CHANNEL_ID,
@@ -224,6 +267,7 @@ class AlertProbeScreenTest {
                             permission = ProbeCapabilityStatus.GRANTED,
                             appNotifications = ProbeCapabilityStatus.GRANTED,
                             channel = ProbeChannelStatus.BLOCKED,
+                            sessionReadStatus = ProbeSessionReadStatus.CONFIRMED_EMPTY,
                             storedOccurrenceId = null,
                         ),
                     ),
@@ -259,6 +303,7 @@ class AlertProbeScreenTest {
                 permission = ProbeCapabilityStatus.DENIED,
                 appNotifications = ProbeCapabilityStatus.UNKNOWN,
                 channel = ProbeChannelStatus.UNKNOWN,
+                sessionReadStatus = ProbeSessionReadStatus.OCCURRENCE_PRESENT,
                 storedOccurrenceId = UUID.randomUUID().toString(),
             ),
             showPermissionAction = true,
@@ -398,6 +443,18 @@ class AlertProbeScreenTest {
             cancelAttempts.incrementAndGet()
             cancelFailure?.let { throw it }
             cancelledIds += notificationId
+        }
+    }
+
+    private class ReadFailingPreferences(
+        private val delegate: android.content.SharedPreferences,
+    ) : android.content.SharedPreferences by delegate {
+        @Volatile
+        var failStringReads = false
+
+        override fun getString(key: String, defValue: String?): String? {
+            check(!failStringReads) { "synthetic session read failure" }
+            return delegate.getString(key, defValue)
         }
     }
 }
