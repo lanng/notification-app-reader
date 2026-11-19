@@ -17,6 +17,7 @@ class RemoteContractFixtureTest {
     fun sharedStateFixtureDocumentsVersionedFinanceAndSeparateContactTime() {
         val shared = fixture("remote/v1/shared-attention.json")
 
+        assertIntegerJsonNumber(shared, "schemaVersion")
         assertEquals(1, shared.getInt("schemaVersion"))
         assertEquals("sharedState", shared.getString("messageType"))
         assertDecimalString(shared, "hostGeneration", "1")
@@ -31,6 +32,7 @@ class RemoteContractFixtureTest {
         assertIntegerJsonNumber(shared, "lastHostContactAtMs")
         assertEquals(28_000L, shared.getLong("balanceCents"))
         assertEquals(30_000L, shared.getLong("limitCents"))
+        assertTrue("needsReview must be a JSON boolean", shared.get("needsReview") is Boolean)
         assertFalse(shared.getBoolean("needsReview"))
         assertEquals(1_000L, shared.getLong("lastFinancialUpdateAtMs"))
         assertEquals(2_000L, shared.getLong("lastHostContactAtMs"))
@@ -58,6 +60,7 @@ class RemoteContractFixtureTest {
         val first = fixture("remote/v1/critical-occurrence.json")
         val repeated = fixture("remote/v1/critical-occurrence.json")
 
+        assertIntegerJsonNumber(first, "schemaVersion")
         assertEquals(1, first.getInt("schemaVersion"))
         assertEquals("alertOccurrence", first.getString("messageType"))
         assertDecimalString(first, "hostGeneration", "1")
