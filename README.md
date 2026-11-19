@@ -5,6 +5,10 @@ conta exclusiva para C6 Tag, usando notificações reconhecidas do C6.
 Não consulta o saldo no banco, não pede senha, não realiza recargas e não usa
 backend ou internet. Não é um produto oficial do banco.
 
+**Documentação de trabalho:** `docs/` é mantida apenas localmente e ignorada pelo
+Git. As referências a essa pasta abaixo são locais/históricas; esses arquivos
+não acompanham novos clones nem são necessários para compilar ou executar testes.
+
 **Estado de desenvolvimento:** Tarefas 1–8 implementadas e revisadas, incluindo
 histórico paginado, pendências e ajustes detalhados. A integração automatizada
 da Tarefa 9 passou em 112 testes JVM e 144 instrumentados, com lint sem erros.
