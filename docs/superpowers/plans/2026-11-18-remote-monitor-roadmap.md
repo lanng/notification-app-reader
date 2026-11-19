@@ -34,11 +34,16 @@ Plano executável separado:
 
 **Entrega independente:** modelos e testes de faixa/idade do estado, fixtures
 do contrato e um protótipo debug de notificação crítica sintética com parada
-imediata. O monitor financeiro atual continua funcionando sem login/rede.
+imediata. Incluir investigação opcional de full-screen intent, aprovada pelo
+usuário, com permissão apenas debug e fallback pela própria notificação.
+O monitor financeiro atual continua funcionando sem login/rede.
 Não introduzir FCM, Firebase, INTERNET, migrations financeiras ou upload.
 
 **Gate:** provas automatizadas da lógica e da construção/cancelamento da
 notificação; comportamento audível depende de ensaio físico consentido.
+Tela cheia também depende de validação: com aparelho em uso pode haver apenas
+heads-up. Testar estado de permissão e ausência de desvio pelo lançamento direto
+de Activity; não tratar concessão manual como aprovação de distribuição na Play.
 Se o som não cumprir a meta, apresentar evidência e ajustar essa parte com o
 usuário, sem inventar FGS, alarme exato, chamada ou overlay como solução.
 
@@ -164,8 +169,9 @@ sem obter dados bancários ou mexer no ambiente produtivo para gerar evidência.
 
 - [x] Registrar ambiente informado e compatibilidade documental PHP/Laravel.
 - [x] Separar entregas por repositório e gates de autorização.
-- [x] Revisar plano executável da etapa A (aprovado sem bloqueios; factory fake
-  explícita no limite da Activity incorporada para impedir áudio real em testes UI).
+- [x] Revisar versão original do plano da etapa A; factory fake no limite da
+  Activity incorporada para impedir áudio real em testes UI.
+- [ ] Revisar ampliação aprovada: investigação full-screen opcional no protótipo.
 - [ ] Escolher execução e isolamento do trabalho Android com o usuário.
 - [ ] Executar etapa A e relatar evidência/limites, sem declarar remoto pronto.
 - [ ] Avisar e aguardar pasta do backend antes da etapa B.

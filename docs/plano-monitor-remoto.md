@@ -54,6 +54,9 @@ criação de contas, cobrança, implantação ou alteração de permissões/disp
   dentro do app aprovados como abordagem-base, sujeitos às configurações Android.
   Tela cheia fica como exploração opcional dependente de validação e consentimento
   específico, não como garantia nem permissão já concedida.
+  Posteriormente o usuário aprovou incluir a investigação prática opcional de
+  tela cheia no protótipo inicial, mantendo parada pela notificação como alternativa.
+  Isso não autoriza teste físico ou concessão de permissão especial.
 - Os avisos aos apoios devem continuar até a recuperação por recarga.
   Encerramento confirmado: recarga insuficiente não encerra o ciclo.
   Com limite R$ 300, R$ 140 → R$ 190 sai do crítico mas continua em atenção;
@@ -237,7 +240,8 @@ Documentos de planejamento:
 - [Roteiro entre repositórios](superpowers/plans/2026-11-18-remote-monitor-roadmap.md):
   Android independente → backend separado → Android integrado → homologação.
 - [Plano executável da fundação Android](superpowers/plans/2026-11-18-remote-mobile-foundation.md):
-  aprovado em revisão independente; não implementa toda a spec nem cria o backend.
+  versão original aprovada em revisão independente; ampliação full-screen
+  aprovada pelo usuário e em revisão. Não implementa toda a spec nem cria o backend.
 
 O plano Laravel detalhado será preparado no contexto da pasta/repositório
 confirmados pelo usuário. Esse roteiro não autoriza inicializá-los.

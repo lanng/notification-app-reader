@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Entregar fundamentos testáveis do estado compartilhado e um protótipo Android debug de alerta crítico sintético com parada imediata, sem backend ou mudança do acompanhamento financeiro atual.
+**Goal:** Entregar fundamentos testáveis do estado compartilhado e um protótipo Android debug de alerta crítico sintético com parada imediata e investigação opcional de tela cheia, sem backend ou mudança do acompanhamento financeiro atual.
 
 **Architecture:** Regras puras pequenas para severidade, idade do estado e sessão sonora; fixtures documentam o futuro contrato. Um Adapter de notificação exclusivamente debug e uma entrada debug em Ajustes permitem testar a hipótese de áudio sem tocar no ciclo financeiro. A integração financeira/remota e o backend terão planos posteriores.
 
@@ -10,8 +10,9 @@
 
 ---
 
-**Estado:** aprovado em revisão independente, sem bloqueios; recomendação de
-injeção do controlador nos testes UI incorporada. Nenhuma implementação iniciada.
+**Estado:** versão original aprovada em revisão independente; ampliação para
+investigação full-screen solicitada e aprovada pelo usuário, em revisão.
+Injeção do controlador nos testes UI preservada. Nenhuma implementação iniciada.
 **Spec:** [`../specs/2026-11-18-remote-monitor-design.md`](../specs/2026-11-18-remote-monitor-design.md).
 **Roteiro completo:** [`2026-11-18-remote-monitor-roadmap.md`](2026-11-18-remote-monitor-roadmap.md).
 
@@ -23,8 +24,11 @@ SQLite v2, temas e preferências. Não substituir `AlertPolicy`, `MonitorNotifie
 ou o ciclo atual; os novos tipos ainda não dirigem decisões financeiras reais.
 
 Fora do escopo: Laravel, login/Firebase/FCM, INTERNET, sincronização, migração
-financeira, árbitro persistido de produção, permissões de tela cheia/alarme/FGS,
+financeira, árbitro persistido de produção, tela cheia no release, alarme/FGS,
 overlay, acesso à política DND, implantação ou instalação física.
+`USE_FULL_SCREEN_INTENT` será declarada somente em `src/debug/AndroidManifest.xml`,
+para investigação opcional, desligada por padrão no probe. Nenhuma concessão
+de permissão ou resultado de exibição é presumido.
 
 Esta documentação foi preparada na branch limpa `docs/remote-monitor-design`.
 Antes de executar código, usar @using-git-worktrees: não há diretório de
@@ -58,6 +62,8 @@ O protótipo é hipótese, não promessa de áudio por 30 segundos.
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeNotificationController.kt` | Canal/notificação crítica, sem acessar finanças |
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeSessionStore.kt` | Sessão atual privada, sem dados financeiros |
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeStopReceiver.kt` | Parada explícita apenas da sessão correspondente |
+| `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeFullScreenAccess.kt` | Capacidade Android e navegação consentida para configuração especial |
+| `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeDelayedTrigger.kt` | Uma tentativa sintética atrasada para observar bloqueio/background |
 | `app/src/debug/AndroidManifest.xml` | Activity/receiver não exportados |
 | `app/src/debug/res/values/strings.xml` | Texto pt-BR de teste, sem recurso debug no release |
 | `docs/contracts/remote-monitor-v1.md` | Semântica candidata do contrato e campo versus identidade |
@@ -462,6 +468,108 @@ internal object DebugAlertProbeEntry {
   por ter testes semânticos. Rodar todos JVM, build debug/test/release e lint.
 - [ ] **Step 7:** Commit: `feat(debug): expose consent-driven alert probe without release behavior`.
 
+## Task 6A: Investigar tela cheia opcional sem perder a parada pela notificação
+
+**Files:**
+- Create: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeFullScreenAccess.kt`
+- Create: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeDelayedTrigger.kt`
+- Modify: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeNotificationController.kt`
+- Modify: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeDependencies.kt`
+- Modify: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeSessionStore.kt`
+- Modify: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/AlertProbeActivity.kt`
+- Modify: `app/src/debug/AndroidManifest.xml`
+- Modify: `app/src/debug/res/values/strings.xml`
+- Modify: `app/src/androidTest/java/br/com/c6tag/diagnostico/capture/ManifestPrivacyTest.kt`
+- Create: `app/src/androidTest/java/br/com/c6tag/diagnostico/remote/probe/ProbeFullScreenTest.kt`
+
+- [ ] **Step 1:** Teste vermelho com fakes: opção desligada/permissão ausente
+  gera a mesma notificação com “Parar som”, sem `fullScreenIntent`; capacidade
+  concedida + opção ligada inclui PendingIntent de Activity explícito/imutável.
+  Não lançar Activity diretamente para simular sucesso do full-screen.
+- [ ] **Step 2:** Executar filtro instrumentado `ProbeFullScreenTest` em emulador
+  autorizado. Estender `ProbeDependencies` para injetar também capacidade,
+  abertura de configurações e disparo atrasado: nenhum teste automatizado
+  modifica permissões, toca som, bloqueia ou acorda aparelho real.
+- [ ] **Step 3:** Declarar `android.permission.USE_FULL_SCREEN_INTENT` apenas no
+  manifest debug. Atualizar allowlist exata de `ManifestPrivacyTest` para debug;
+  inspecionar manifest release e provar que essa permissão não está nele.
+  `POST_NOTIFICATIONS` e capacidade do canal continuam sendo verificações
+  independentes; não recriar canal que o usuário silenciou.
+- [ ] **Step 4:** Implementar `ProbeFullScreenAccess`: API 34+ consulta
+  `NotificationManager.canUseFullScreenIntent()`. API 29–33 verifica a permissão
+  declarada; API 26–28 não depende da API especial moderna. Tratar indisponibilidade
+  como sem capacidade, não como concessão. Só após botão explicado abrir:
+
+```kotlin
+if (Build.VERSION.SDK_INT >= 34) {
+    context.startActivity(Intent(
+        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+        Uri.parse("package:${context.packageName}"),
+    ))
+}
+```
+
+  Usar contexto Activity ou flag adequada ao contexto; capturar
+  `ActivityNotFoundException`/`SecurityException` e mostrar indisponibilidade.
+  Reconsultar capacidade em `onResume`; não usar diálogo de permissão runtime
+  para esse acesso especial nem abri-lo automaticamente.
+- [ ] **Step 5:** Opção “Tentar tela cheia neste teste” começa desligada.
+  Com opção ligada e capacidade verificada, acrescentar ao builder da Task 5
+  antes de `build()`:
+
+```kotlin
+val fullScreen = Intent(context, AlertProbeActivity::class.java).apply {
+    action = "br.com.c6tag.diagnostico.remote.probe.SHOW_ALERT"
+    data = Uri.Builder().scheme("monitor-probe").authority("screen")
+        .appendPath(occurrenceId).build()
+    putExtra("occurrenceId", occurrenceId)
+}
+builder.setFullScreenIntent(PendingIntent.getActivity(
+    context, 1, fullScreen, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+), true)
+```
+
+  Se publicar com FSI falhar por restrição, tentar uma vez sem FSI, com a mesma
+  sessão/ID/ação de parada. Não duplicar toque, começar outra sessão, alterar
+  `CATEGORY_REMINDER` para chamada/alarme ou usar `startActivity` como contorno.
+  Aceite da publicação não significa que o sistema abriu tela cheia.
+- [ ] **Step 6:** Em `onCreate`/`onNewIntent`, aceitar `SHOW_ALERT` somente quando
+  ID e sessão atual ainda ativa coincidirem. Persistir na sessão ID, início
+  monotônico e identidade do processo para falhar de forma conservadora se a
+  continuidade não puder ser demonstrada. Sessão antiga/parada/expirada ou de
+  processo anterior não ganha tela sobre o bloqueio nem inicia áudio novo.
+  Stop por receiver ainda pode cancelar o ID persistido após reinício.
+  Esta limitação de cold start é do probe; não prova o futuro fluxo FCM.
+- [ ] **Step 7:** Para apresentação `SHOW_ALERT` válida, API 27+ usa
+  `setShowWhenLocked(true)` e `setTurnScreenOn(true)`; API 26 tem Adapter guardado
+  para flags equivalentes de janela. Não definir essas flags globalmente no
+  manifest ou na entrada normal de Ajustes. Nunca dispensar keyguard/desbloquear,
+  mostrar saldo real ou abrir outras telas privadas sobre o bloqueio.
+  Exibir somente dados sintéticos e botão grande “Parar som”, que usa a mesma
+  parada por ID da notificação. Finalizar apresentação após parada/expiração;
+  reentrada não publica som e intenção velha não cancela nova sessão.
+- [ ] **Step 8:** Para observar app em background/tela bloqueada sem FCM,
+  `ProbeDelayedTrigger` oferece “Tentar em 5 segundos”, somente após toque.
+  Uma tarefa in-process cancelável, sem serviço/alarme/job, chama o mesmo
+  controller; sessão sonora inicia na publicação, não no agendamento.
+  Permitir cancelar a tentativa pendente; ID anterior não dispara após nova
+  tentativa. Processo morto perde o disparo e não o restaura. Atraso não é
+  garantia, nem implementação da cadência de 10 minutos.
+- [ ] **Step 9:** Testar com fakes concessão/negação/revogação entre consulta e
+  envio, retorno de configurações, tentativa cancelada, ID antigo, expiração,
+  reentrada sem novo som e parada equivalente na tela/notificação. Registrar
+  separadamente “solicitado”, “Activity recebeu intenção” e “exibição observada”.
+  Não inferir tela cheia de uma Activity aberta manualmente por instrumentation.
+- [ ] **Step 10:** Rodar JVM/builds/lint e instrumentados autorizados, verificar
+  ausência de permissão/capacidade FSI no release. Commit:
+  `feat(debug): investigate optional full-screen critical alert presentation`.
+
+Fontes oficiais novamente consultadas ao ampliar o plano:
+[Android 14 — full-screen intent](https://developer.android.com/about/versions/14/behavior-changes-14#secure-fsi-notifications),
+[notificações urgentes](https://developer.android.com/develop/ui/views/notifications/time-sensitive).
+Durante uso ativo, Android pode preferir heads-up mesmo com acesso concedido.
+Concessão manual não equivale a elegibilidade/política de distribuição na Play.
+
 ## Task 7: Evidência e gate antes da integração
 
 **Files:**
@@ -480,6 +588,13 @@ internal object DebugAlertProbeEntry {
   aparelho/API identificados sem serial privado no Git; volume baixo inicial;
   aviso sonoro consentido; iniciar, parar antes de 30s, aguardar expiração,
   abrir painel, tela bloqueada, app em background, canal silenciado, DND.
+  Incluir matriz full-screen opcional desligado/ligado × acesso negado/concedido
+  × aparelho em uso/bloqueado. Quando indisponível, confirmar alternativa pela
+  notificação sem abrir o app nem aguardar 30 segundos; observar se o Android
+  exige desbloqueio para alguma ação e registrar sem prometer contorná-lo.
+  Comparar heads-up, Activity recebida e tela realmente visível, não só flag do
+  payload. Conceder/revogar acesso especial e bloquear/acordar o aparelho são
+  ações físicas separadas, consentidas para cada ensaio.
   Por cenário: configuração, expectativa, observado e limite/não observado.
   Não alterar volume/DND, reboot ou force-stop sem autorização específica.
 - [ ] **Step 4:** Checklist separa stop de ciência: após o teste, o saldo,
@@ -502,6 +617,8 @@ internal object DebugAlertProbeEntry {
 - [ ] Probe isolado da persistência/alertas financeiros atuais.
 - [ ] Parada por identidade; intenção antiga não cancela teste novo.
 - [ ] Canal/permissões do usuário respeitados e release sem capacidade de probe.
+- [ ] Investigação full-screen opcional e fallback cobertos; tela cheia/áudio
+  físico não comprovados ficam explicitamente marcados, sem garantia de abertura.
 - [ ] Nenhum Firebase, internet, backend, conta ou configuração de infraestrutura criado.
 - [ ] Regressões locais verificadas e limites de áudio explicitados.
 - [ ] Revisão humana do gate antes de prometer áudio ou começar outra etapa.

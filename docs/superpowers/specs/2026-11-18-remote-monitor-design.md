@@ -257,6 +257,11 @@ usuário. Não alterar silenciosamente um canal já personalizado.
 - Tela cheia é exploração opcional, não parte garantida da primeira entrega:
   requer elegibilidade, consentimento/configuração específicos e validação.
   Não usar overlay, acessibilidade, falsa ligação ou bypass de DND.
+  Inclusão no protótipo inicial aprovada pelo usuário: investigar full-screen
+  intent com controles de parada grandes, sobre o bloqueio quando permitido,
+  sem desbloquear o aparelho. Comparar tela bloqueada/aparelho em uso e permissão
+  concedida/negada, preservando a ação na notificação como alternativa.
+  A aprovação é da investigação; não concede permissões nem autoriza teste físico.
 
 **Gate de viabilidade obrigatório antes de prometer áudio pronto:** protótipo
 com dados sintéticos para duração, parada imediata, canal/volume/DND, app aberto/

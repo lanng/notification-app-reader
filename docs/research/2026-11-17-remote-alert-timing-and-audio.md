@@ -75,3 +75,14 @@ de até 30 segundos, ainda sujeita a protótipo. Ver
 Fontes novamente consultadas:
 [notificações urgentes](https://developer.android.com/develop/ui/views/notifications/time-sensitive),
 [Android 14 — full-screen intents](https://developer.android.com/about/versions/14/behavior-changes-14#secure-fsi-notifications).
+
+### Encaminhamento após a pesquisa
+
+O usuário aprovou incluir a investigação prática de full-screen intent no
+protótipo debug inicial, além da parada pela notificação. O plano contempla
+acesso especial opcional, alternativa sem FSI e comparação entre aparelho em
+uso e bloqueado. Somente o manifest debug poderá declarar a permissão.
+Isso altera o escopo planejado, não o resultado experimental: nenhuma prova de
+abertura automática, tela sobre o bloqueio ou duração audível foi obtida.
+Concessão de acesso e ensaios físicos continuam exigindo autorização separada.
+Plano: [`../superpowers/plans/2026-11-18-remote-mobile-foundation.md`](../superpowers/plans/2026-11-18-remote-mobile-foundation.md).
