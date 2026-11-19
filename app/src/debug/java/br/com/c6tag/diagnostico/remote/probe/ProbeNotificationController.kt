@@ -40,9 +40,13 @@ internal class ProbeNotificationController(
     context: Context,
     private val store: ProbeSessionStore = ProbeSessionStore(context.applicationContext),
     platformOverride: ProbeNotificationPlatform? = null,
+    notificationFactoryOverride: ((String) -> Notification)? = null,
 ) {
     private val context = context.applicationContext
     private val platform = platformOverride ?: AndroidProbeNotificationPlatform(this.context)
+    private val notificationFactory = notificationFactoryOverride ?: { occurrenceId ->
+        buildNotification(occurrenceId)
+    }
 
     fun submitCritical(): ProbeSubmissionOutcome = synchronized(ProbeSessionStore.processLock) {
         try {
@@ -68,7 +72,15 @@ internal class ProbeNotificationController(
                 return@synchronized ProbeSubmissionOutcome.FAILED
             }
 
-            val notification = buildNotification(occurrenceId)
+            val notification = try {
+                notificationFactory(occurrenceId)
+            } catch (_: SecurityException) {
+                store.clearCurrentIfMatches(occurrenceId)
+                return@synchronized ProbeSubmissionOutcome.PERMISSION_DENIED
+            } catch (_: Exception) {
+                store.clearCurrentIfMatches(occurrenceId)
+                return@synchronized ProbeSubmissionOutcome.FAILED
+            }
             try {
                 platform.publish(NOTIFICATION_ID, notification)
                 ProbeSubmissionOutcome.ACCEPTED
@@ -98,10 +110,12 @@ internal class ProbeNotificationController(
         }
 
     private fun cleanupFailedPublication(occurrenceId: String) {
+        if (store.currentOccurrenceId() != occurrenceId) return
         try {
             platform.cancel(NOTIFICATION_ID)
         } catch (_: Exception) {
-            // Clear only the session owned by the failed publication.
+            // Keep the matching identity so the stop action can retry cancellation.
+            return
         }
         store.clearCurrentIfMatches(occurrenceId)
     }

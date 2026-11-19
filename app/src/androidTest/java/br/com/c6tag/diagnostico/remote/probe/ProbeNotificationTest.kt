@@ -151,17 +151,88 @@ class ProbeNotificationTest {
         preferences.edit().putString(unrelatedKey, "preserve").commit()
         store.clearCurrentIfMatches(store.currentOccurrenceId()!!)
         val newerOccurrenceId = UUID.randomUUID().toString()
-        platform.beforePublish = { store.persistOccurrenceId(newerOccurrenceId) }
+        platform.beforePublish = {
+            store.persistOccurrenceId(newerOccurrenceId)
+            platform.postedOccurrenceId = newerOccurrenceId
+        }
         platform.publishFailure = IllegalStateException("synthetic publish failure")
         assertEquals(ProbeSubmissionOutcome.FAILED, controller.submitCritical())
         assertEquals(newerOccurrenceId, store.currentOccurrenceId())
         assertEquals("preserve", preferences.getString(unrelatedKey, null))
+        assertTrue("Do not cancel when ownership changed during failed publish", platform.cancelAttempts.isEmpty())
+        assertEquals(newerOccurrenceId, platform.postedOccurrenceId)
         store.clearCurrentIfMatches(newerOccurrenceId)
 
         platform.beforePublish = null
         platform.publishFailure = SecurityException("synthetic permission race")
         assertEquals(ProbeSubmissionOutcome.PERMISSION_DENIED, controller.submitCritical())
         assertNull(store.currentOccurrenceId())
+    }
+
+    @Test
+    fun notificationConstructionFailureClearsDurableSessionWithoutPublishing() {
+        platform.channelValue = NotificationChannel(
+            ProbeNotificationController.CHANNEL_ID,
+            "existing synthetic channel",
+            NotificationManager.IMPORTANCE_HIGH,
+        )
+        val throwingController = ProbeNotificationController(
+            context,
+            store,
+            platform,
+            notificationFactoryOverride = {
+                throw IllegalStateException("synthetic notification construction failure")
+            },
+        )
+
+        assertEquals(ProbeSubmissionOutcome.FAILED, throwingController.submitCritical())
+
+        assertNull("Unpublished session must be cleared", store.currentOccurrenceId())
+        assertTrue(platform.published.isEmpty())
+        assertTrue(platform.cancelAttempts.isEmpty())
+    }
+
+    @Test
+    fun failedPublicationWithSuccessfulCancellationClearsMatchingSession() {
+        platform.publishFailure = IllegalStateException("synthetic pre-post failure")
+        var occurrenceAtPublish: String? = null
+        platform.beforePublish = { occurrenceAtPublish = store.currentOccurrenceId() }
+
+        assertEquals(ProbeSubmissionOutcome.FAILED, controller.submitCritical())
+
+        assertNotNull(occurrenceAtPublish)
+        assertNull(store.currentOccurrenceId())
+        assertEquals(listOf(6_099), platform.cancelledIds)
+    }
+
+    @Test
+    fun failedPublicationAndFailedCancellationRetainIdentityForStopRetry() {
+        platform.publishFailure = IllegalStateException("synthetic post-then-error")
+        platform.postBeforeFailure = true
+        platform.cancelFailure = IllegalStateException("synthetic cancellation failure")
+        var occurrenceAtPublish: String? = null
+        platform.beforePublish = {
+            occurrenceAtPublish = store.currentOccurrenceId()
+            platform.postedOccurrenceId = occurrenceAtPublish
+        }
+
+        assertEquals(ProbeSubmissionOutcome.FAILED, controller.submitCritical())
+
+        val occurrenceId = requireNotNull(occurrenceAtPublish)
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        assertTrue(platform.postedIds.contains(6_099))
+        assertEquals(occurrenceId, platform.postedOccurrenceId)
+
+        assertFalse(controller.stop(occurrenceId))
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        assertTrue(platform.postedIds.contains(6_099))
+        assertEquals(occurrenceId, platform.postedOccurrenceId)
+
+        platform.cancelFailure = null
+        assertTrue(controller.stop(occurrenceId))
+        assertNull(store.currentOccurrenceId())
+        assertFalse(platform.postedIds.contains(6_099))
+        assertNull(platform.postedOccurrenceId)
     }
 
     @Test
@@ -218,6 +289,7 @@ class ProbeNotificationTest {
         val secondController = ProbeNotificationController(context, secondStore, platform)
         val firstCancelEntered = java.util.concurrent.CountDownLatch(1)
         val releaseFirstCancel = java.util.concurrent.CountDownLatch(1)
+        val secondAttempting = java.util.concurrent.CountDownLatch(1)
         val secondCancelEntered = java.util.concurrent.CountDownLatch(1)
         platform.onCancel = {
             if (Thread.currentThread().name == "probe-first-stop") {
@@ -230,13 +302,18 @@ class ProbeNotificationTest {
         var firstResult = false
         var secondResult = true
         val first = Thread({ firstResult = controller.stop(occurrenceId) }, "probe-first-stop")
-        val second = Thread({ secondResult = secondController.stop(occurrenceId) }, "probe-second-stop")
+        val second = Thread({
+            secondAttempting.countDown()
+            secondResult = secondController.stop(occurrenceId)
+        }, "probe-second-stop")
 
         first.start()
         assertTrue(firstCancelEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
         second.start()
         try {
-            assertFalse(secondCancelEntered.await(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+            assertTrue(secondAttempting.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            awaitThreadState(second, Thread.State.BLOCKED)
+            assertEquals(1, secondCancelEntered.count)
         } finally {
             releaseFirstCancel.countDown()
         }
@@ -248,6 +325,14 @@ class ProbeNotificationTest {
         assertTrue(firstResult)
         assertFalse(secondResult)
         assertEquals(listOf(6_099), platform.cancelledIds)
+    }
+
+    private fun awaitThreadState(thread: Thread, state: Thread.State) {
+        val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while (thread.state != state && System.nanoTime() < deadline) {
+            Thread.yield()
+        }
+        assertEquals("Second stop must be blocked on the shared process lock", state, thread.state)
     }
 
     private fun expectedStopPendingIntent(occurrenceId: String): PendingIntent {
@@ -280,12 +365,20 @@ class ProbeNotificationTest {
         @Volatile
         var publishFailure: Exception? = null
         @Volatile
+        var postBeforeFailure = false
+        @Volatile
+        var cancelFailure: Exception? = null
+        @Volatile
+        var postedOccurrenceId: String? = null
+        @Volatile
         var beforePublish: (() -> Unit)? = null
         @Volatile
         var onCancel: (() -> Unit)? = null
 
         val createdChannels = java.util.concurrent.CopyOnWriteArrayList<NotificationChannel>()
         val published = java.util.concurrent.CopyOnWriteArrayList<Pair<Int, Notification>>()
+        val postedIds = java.util.concurrent.CopyOnWriteArraySet<Int>()
+        val cancelAttempts = java.util.concurrent.CopyOnWriteArrayList<Int>()
         val cancelledIds = java.util.concurrent.CopyOnWriteArrayList<Int>()
 
         override fun permissionGranted() = permission
@@ -299,13 +392,19 @@ class ProbeNotificationTest {
 
         override fun publish(notificationId: Int, notification: Notification) {
             beforePublish?.invoke()
+            if (postBeforeFailure) postedIds += notificationId
             publishFailure?.let { throw it }
             published += notificationId to notification
+            postedIds += notificationId
         }
 
         override fun cancel(notificationId: Int) {
-            cancelledIds += notificationId
+            cancelAttempts += notificationId
             onCancel?.invoke()
+            cancelFailure?.let { throw it }
+            cancelledIds += notificationId
+            postedIds -= notificationId
+            postedOccurrenceId = null
         }
     }
 
