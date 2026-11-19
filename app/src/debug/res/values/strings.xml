@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="probe_critical_title">Teste de alerta crítico</string>
+    <string name="probe_synthetic_only">Dados sintéticos — não é seu saldo</string>
+    <string name="probe_stop_sound">Parar som</string>
+    <string name="probe_critical_channel_name">Alerta crítico sintético (teste)</string>
+    <string name="probe_critical_channel_description">Notificação manual de teste com dados sintéticos.</string>
+</resources>

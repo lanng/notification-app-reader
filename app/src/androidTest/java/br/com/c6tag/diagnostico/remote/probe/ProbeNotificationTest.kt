@@ -1,0 +1,332 @@
+package br.com.c6tag.diagnostico.remote.probe
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.media.AudioAttributes
+import android.net.Uri
+import android.provider.Settings
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import br.com.c6tag.diagnostico.monitor.alerts.MonitorNotifier
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.util.UUID
+
+@RunWith(AndroidJUnit4::class)
+class ProbeNotificationTest {
+    private val context: Context
+        get() = InstrumentationRegistry.getInstrumentation().targetContext
+    private lateinit var preferences: android.content.SharedPreferences
+    private lateinit var store: ProbeSessionStore
+    private lateinit var platform: FakePlatform
+    private lateinit var controller: ProbeNotificationController
+
+    @Before
+    fun setUp() {
+        preferences = context.getSharedPreferences(
+            "probe-test-${UUID.randomUUID()}",
+            Context.MODE_PRIVATE,
+        )
+        store = ProbeSessionStore(context, preferences)
+        platform = FakePlatform()
+        controller = ProbeNotificationController(context, store, platform)
+    }
+
+    @After
+    fun tearDown() {
+        preferences.edit().clear().commit()
+    }
+
+    @Test
+    fun criticalNotificationUsesPrivateSyntheticContentHighChannelAndTimeout() {
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+
+        val notification = platform.published.single().second
+        val channel = platform.createdChannels.single()
+        assertEquals("monitor_critical_probe_v1", notification.channelId)
+        assertEquals(Notification.VISIBILITY_PRIVATE, notification.visibility)
+        assertEquals(Notification.CATEGORY_REMINDER, notification.category)
+        assertEquals(30_000L, notification.timeoutAfter)
+        assertEquals(0, notification.flags and Notification.FLAG_AUTO_CANCEL)
+        assertNotEquals(0, notification.flags and Notification.FLAG_INSISTENT)
+        assertEquals("Teste de alerta crítico", notification.extras.getCharSequence(Notification.EXTRA_TITLE))
+        assertEquals(
+            "Dados sintéticos — não é seu saldo",
+            notification.extras.getCharSequence(Notification.EXTRA_TEXT),
+        )
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
+        assertEquals(Settings.System.DEFAULT_NOTIFICATION_URI, channel.sound)
+        assertEquals(AudioAttributes.USAGE_NOTIFICATION, channel.audioAttributes.usage)
+        assertEquals(AudioAttributes.CONTENT_TYPE_SONIFICATION, channel.audioAttributes.contentType)
+        assertEquals(Notification.VISIBILITY_PRIVATE, channel.lockscreenVisibility)
+        assertFalse(channel.canBypassDnd())
+        assertEquals(6_099, platform.published.single().first)
+        assertNotEquals(MonitorNotifier.CHANNEL_ID, notification.channelId)
+        assertNotEquals(MonitorNotifier.NOTIFICATION_ID, platform.published.single().first)
+    }
+
+    @Test
+    fun stopActionIsImmutableExplicitAndUniquePerOccurrence() {
+        controller.submitCritical()
+        val firstId = store.currentOccurrenceId()!!
+        val firstAction = platform.published.last().second.actions.single()
+        assertEquals("Parar som", firstAction.title)
+        assertEquals(expectedStopPendingIntent(firstId), firstAction.actionIntent)
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            assertTrue(firstAction.actionIntent.isImmutable)
+        }
+
+        controller.submitCritical()
+        val secondId = store.currentOccurrenceId()!!
+        val secondAction = platform.published.last().second.actions.single()
+        assertNotEquals(firstId, secondId)
+        assertNotEquals(firstAction.actionIntent, secondAction.actionIntent)
+        assertEquals(expectedStopPendingIntent(secondId), secondAction.actionIntent)
+    }
+
+    @Test
+    fun deniedPermissionOrDisabledAppNotificationsNeverPublish() {
+        platform.permission = false
+        assertEquals(ProbeSubmissionOutcome.PERMISSION_DENIED, controller.submitCritical())
+        assertTrue(platform.published.isEmpty())
+        assertNull(store.currentOccurrenceId())
+
+        platform.permission = true
+        platform.appNotificationsEnabled = false
+        assertEquals(ProbeSubmissionOutcome.PERMISSION_DENIED, controller.submitCritical())
+        assertTrue(platform.published.isEmpty())
+        assertNull(store.currentOccurrenceId())
+    }
+
+    @Test
+    fun missingOrBlockedChannelNeverReportsAccepted() {
+        platform.createChannelOnRequest = false
+        assertEquals(ProbeSubmissionOutcome.CHANNEL_BLOCKED, controller.submitCritical())
+        assertTrue(platform.published.isEmpty())
+        assertNull(store.currentOccurrenceId())
+
+        platform.channelValue = NotificationChannel(
+            "monitor_critical_probe_v1",
+            "synthetic blocked channel",
+            NotificationManager.IMPORTANCE_NONE,
+        )
+        assertEquals(ProbeSubmissionOutcome.CHANNEL_BLOCKED, controller.submitCritical())
+        assertEquals(1, platform.createdChannels.size)
+        assertTrue(platform.published.isEmpty())
+        assertNull(store.currentOccurrenceId())
+    }
+
+    @Test
+    fun existingCustomizedSilentChannelIsNotRecreatedOrOverwritten() {
+        val customized = NotificationChannel(
+            "monitor_critical_probe_v1",
+            "user customized synthetic channel",
+            NotificationManager.IMPORTANCE_HIGH,
+        ).apply { setSound(null, null) }
+        platform.channelValue = customized
+
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+
+        assertTrue(platform.createdChannels.isEmpty())
+        assertNull(customized.sound)
+        assertSame(customized, platform.channelValue)
+    }
+
+    @Test
+    fun sessionIsPersistedBeforePublishAndFailedPublicationCleansItsSession() {
+        var persistedAtPublish: String? = null
+        platform.beforePublish = { persistedAtPublish = store.currentOccurrenceId() }
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        assertEquals(store.currentOccurrenceId(), persistedAtPublish)
+
+        val unrelatedKey = "unrelated-probe-test-value"
+        preferences.edit().putString(unrelatedKey, "preserve").commit()
+        store.clearCurrentIfMatches(store.currentOccurrenceId()!!)
+        val newerOccurrenceId = UUID.randomUUID().toString()
+        platform.beforePublish = { store.persistOccurrenceId(newerOccurrenceId) }
+        platform.publishFailure = IllegalStateException("synthetic publish failure")
+        assertEquals(ProbeSubmissionOutcome.FAILED, controller.submitCritical())
+        assertEquals(newerOccurrenceId, store.currentOccurrenceId())
+        assertEquals("preserve", preferences.getString(unrelatedKey, null))
+        store.clearCurrentIfMatches(newerOccurrenceId)
+
+        platform.beforePublish = null
+        platform.publishFailure = SecurityException("synthetic permission race")
+        assertEquals(ProbeSubmissionOutcome.PERMISSION_DENIED, controller.submitCritical())
+        assertNull(store.currentOccurrenceId())
+    }
+
+    @Test
+    fun failedPreferenceCommitNeverPublishesNotification() {
+        val commitFailingStore = ProbeSessionStore(
+            context,
+            CommitFailingPreferences(preferences),
+        )
+        val commitFailingController = ProbeNotificationController(
+            context,
+            commitFailingStore,
+            platform,
+        )
+
+        assertEquals(ProbeSubmissionOutcome.FAILED, commitFailingController.submitCritical())
+        assertTrue(platform.published.isEmpty())
+    }
+
+    @Test
+    fun staleStopCannotCancelReplacementAndMatchingStopIsIdempotent() {
+        controller.submitCritical()
+        val oldId = store.currentOccurrenceId()!!
+        controller.submitCritical()
+        val currentId = store.currentOccurrenceId()!!
+        assertNotEquals(oldId, currentId)
+        val cancellationsAfterReplacement = platform.cancelledIds.size
+
+        assertFalse(controller.stop(oldId))
+        assertEquals(cancellationsAfterReplacement, platform.cancelledIds.size)
+        assertTrue(controller.stop(currentId))
+        assertFalse(controller.stop(currentId))
+        assertNull(store.currentOccurrenceId())
+        assertEquals(cancellationsAfterReplacement + 1, platform.cancelledIds.size)
+        assertTrue(platform.cancelledIds.all { it == 6_099 })
+    }
+
+    @Test
+    fun newStoreAndControllerInstanceCanStopPersistedSession() {
+        controller.submitCritical()
+        val occurrenceId = store.currentOccurrenceId()!!
+        val newStore = ProbeSessionStore(context, preferences)
+        val newController = ProbeNotificationController(context, newStore, platform)
+
+        assertTrue(newController.stop(occurrenceId))
+        assertNull(store.currentOccurrenceId())
+        assertEquals(listOf(6_099), platform.cancelledIds)
+    }
+
+    @Test
+    fun sharedStoreLockMakesConcurrentMatchingStopsAtomic() {
+        controller.submitCritical()
+        val occurrenceId = store.currentOccurrenceId()!!
+        val secondStore = ProbeSessionStore(context, preferences)
+        val secondController = ProbeNotificationController(context, secondStore, platform)
+        val firstCancelEntered = java.util.concurrent.CountDownLatch(1)
+        val releaseFirstCancel = java.util.concurrent.CountDownLatch(1)
+        val secondCancelEntered = java.util.concurrent.CountDownLatch(1)
+        platform.onCancel = {
+            if (Thread.currentThread().name == "probe-first-stop") {
+                firstCancelEntered.countDown()
+                check(releaseFirstCancel.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            } else if (Thread.currentThread().name == "probe-second-stop") {
+                secondCancelEntered.countDown()
+            }
+        }
+        var firstResult = false
+        var secondResult = true
+        val first = Thread({ firstResult = controller.stop(occurrenceId) }, "probe-first-stop")
+        val second = Thread({ secondResult = secondController.stop(occurrenceId) }, "probe-second-stop")
+
+        first.start()
+        assertTrue(firstCancelEntered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        second.start()
+        try {
+            assertFalse(secondCancelEntered.await(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+        } finally {
+            releaseFirstCancel.countDown()
+        }
+        first.join(5_000)
+        second.join(5_000)
+
+        assertFalse(first.isAlive)
+        assertFalse(second.isAlive)
+        assertTrue(firstResult)
+        assertFalse(secondResult)
+        assertEquals(listOf(6_099), platform.cancelledIds)
+    }
+
+    private fun expectedStopPendingIntent(occurrenceId: String): PendingIntent {
+        val intent = Intent(context, ProbeStopReceiver::class.java).apply {
+            action = ProbeNotificationController.STOP_ACTION
+            data = Uri.Builder()
+                .scheme("monitor-probe")
+                .authority("sound")
+                .appendPath(occurrenceId)
+                .build()
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    internal class FakePlatform : ProbeNotificationPlatform {
+        @Volatile
+        var permission = true
+        @Volatile
+        var appNotificationsEnabled = true
+        @Volatile
+        var channelValue: NotificationChannel? = null
+        @Volatile
+        var createChannelOnRequest = true
+        @Volatile
+        var publishFailure: Exception? = null
+        @Volatile
+        var beforePublish: (() -> Unit)? = null
+        @Volatile
+        var onCancel: (() -> Unit)? = null
+
+        val createdChannels = java.util.concurrent.CopyOnWriteArrayList<NotificationChannel>()
+        val published = java.util.concurrent.CopyOnWriteArrayList<Pair<Int, Notification>>()
+        val cancelledIds = java.util.concurrent.CopyOnWriteArrayList<Int>()
+
+        override fun permissionGranted() = permission
+        override fun notificationsEnabled() = appNotificationsEnabled
+        override fun channel() = channelValue
+
+        override fun createChannel(channel: NotificationChannel) {
+            createdChannels += channel
+            if (createChannelOnRequest) channelValue = channel
+        }
+
+        override fun publish(notificationId: Int, notification: Notification) {
+            beforePublish?.invoke()
+            publishFailure?.let { throw it }
+            published += notificationId to notification
+        }
+
+        override fun cancel(notificationId: Int) {
+            cancelledIds += notificationId
+            onCancel?.invoke()
+        }
+    }
+
+    private class CommitFailingPreferences(
+        private val delegate: SharedPreferences,
+    ) : SharedPreferences by delegate {
+        override fun edit(): SharedPreferences.Editor {
+            val editor = delegate.edit()
+            return object : SharedPreferences.Editor by editor {
+                override fun putString(key: String, value: String?): SharedPreferences.Editor {
+                    editor.putString(key, value)
+                    return this
+                }
+
+                override fun remove(key: String): SharedPreferences.Editor {
+                    editor.remove(key)
+                    return this
+                }
+
+                override fun commit(): Boolean = false
+            }
+        }
+    }
+}
