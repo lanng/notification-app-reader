@@ -2,9 +2,10 @@
 
 ## Estado
 
-Desenho em andamento. Em 2026-11-18, usuário aprovou a arquitetura-base
-Laravel na VPS existente + FCM, condicionada à checagem de capacidade.
-Isso autoriza continuar o desenho, não acesso ao servidor, implementação,
+Em 2026-11-18, usuário aprovou a especificação consolidada e a passagem ao
+planejamento. Laravel na VPS existente + FCM continua condicionado à checagem
+de capacidade/compatibilidade. A próxima etapa é preflight e planos separados
+para Android e backend, não acesso ao servidor, implementação,
 criação de contas, cobrança, implantação ou alteração de permissões/dispositivos.
 
 ## Decisões confirmadas
@@ -176,14 +177,14 @@ Antes de começar qualquer código do backend, avisar o usuário e aguardar que
 ele crie a pasta no local correto e informe o caminho. Não criar a pasta,
 inicializar o backend ou escolher seu destino implicitamente.
 
-Especificação revisada, aguardando aprovação do usuário:
+Especificação revisada e aprovada pelo usuário:
 [`superpowers/specs/2026-11-18-remote-monitor-design.md`](superpowers/specs/2026-11-18-remote-monitor-design.md).
-As decisões confirmadas acima são distintas das propostas técnicas indicadas no
-documento para aprovação escrita. Nenhuma alteração de execução foi realizada.
+As propostas técnicas do documento também estão abrangidas pela aprovação
+expressa do spec. Nenhuma alteração de execução foi realizada.
 Primeira revisão independente apontou coordenação de avisos local/remoto e
 continuidade de ciclo na troca de host. As regras propostas foram explicitadas
 na especificação. A segunda revisão foi aprovada, sem bloqueios para planejamento;
-as propostas ainda dependem de aprovação do usuário. A revisão destacou que
+o usuário aprovou o documento após essa revisão. A revisão destacou que
 encerramento por redução do limite exige confirmação explícita e não deve ser
 confundido com recuperação automática por uma estimativa confiável.
 
@@ -195,7 +196,7 @@ confundido com recuperação automática por uma estimativa confiável.
 - [x] Pesquisar limites de Android/push/áudio em fontes oficiais.
 - [x] Concluir comparação de hospedagem e gratuidade, com fontes.
 - [x] Escolher abordagem com o usuário: Laravel na VPS + FCM, condicionada à capacidade.
-- [ ] Completar desenho, revisar especificação e obter aprovação.
+- [x] Completar desenho, revisar especificação e obter aprovação.
 - [ ] Preparar plano de implementação em branch de trabalho.
 
 ### Consolidação e aprovação do desenho
@@ -209,5 +210,15 @@ confundido com recuperação automática por uma estimativa confiável.
 - [x] Escrever a especificação como desenho para aprovação.
 - [x] Commitar a especificação e as decisões documentadas (`cebdcc3`).
 - [x] Concluir revisão independente de consistência da especificação (segunda rodada).
-- [ ] Obter revisão e aprovação do documento escrito pelo usuário.
+- [x] Obter revisão e aprovação do documento escrito pelo usuário.
 - [ ] Após aprovação, preparar plano de implementação com os gates necessários.
+
+### Planejamento — próximo checkpoint
+
+- [ ] Receber resumo sanitizado da VPS: sistema, PHP, banco, CPU/RAM/disco,
+  gerenciamento, cron e supervisão de processos, sem credenciais.
+- [ ] Definir contrato de integração e planos separados por repositório.
+- [ ] Mapear arquivos/tarefas e evidência verificável, incluindo regressão local,
+  falhas de rede, autorização, agenda, deduplicação e gate do áudio.
+- [ ] Revisar o plano antes da passagem à execução.
+- [ ] Antes de qualquer código do backend, avisar e aguardar a pasta do usuário.

@@ -1,8 +1,9 @@
-# Monitor remoto — desenho para aprovação
+# Monitor remoto — desenho aprovado
 
 **Data:** 2026-11-18.
-**Estado:** revisão independente aprovada na segunda rodada; aprovação escrita
-do usuário pendente. Não é autorização de implementação, acesso à VPS ou implantação.
+**Estado:** revisão independente aprovada na segunda rodada e spec aprovado
+expressamente pelo usuário; autorizada passagem ao planejamento. Não é autorização
+de implementação, acesso à VPS ou implantação.
 
 ## 1. Objetivo e escolha arquitetural
 
@@ -361,9 +362,9 @@ do backend, avisar o usuário e aguardar que ele crie a pasta no local correto e
 informe seu caminho. Não criar/inicializar o backend nem escolher seu destino
 implicitamente.
 
-Revisar este desenho, incluindo os defaults técnicos propostos, com o usuário.
-Só após aprovação escrita coletar os dados de preflight e preparar um plano
-de implementação faseado, com gates de áudio, backend, sincronização e validação.
+A aprovação escrita foi recebida, incluindo os defaults técnicos propostos.
+Coletar os dados sanitizados de preflight e preparar planos separados por
+repositório, com gates de áudio, backend, sincronização e validação.
 Não há código novo de Android/Laravel, conta ou serviço implantado por este documento.
 
 Referências:
