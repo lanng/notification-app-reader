@@ -241,7 +241,8 @@ Documentos de planejamento:
   Android independente → backend separado → Android integrado → homologação.
 - [Plano executável da fundação Android](superpowers/plans/2026-11-18-remote-mobile-foundation.md):
   versão original aprovada em revisão independente; ampliação full-screen
-  aprovada pelo usuário e em revisão. Não implementa toda a spec nem cria o backend.
+  aprovada pelo usuário e na revisão independente, sem bloqueios.
+  Não implementa toda a spec nem cria o backend.
 
 O plano Laravel detalhado será preparado no contexto da pasta/repositório
 confirmados pelo usuário. Esse roteiro não autoriza inicializá-los.

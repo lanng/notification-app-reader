@@ -11,7 +11,8 @@
 ---
 
 **Estado:** versão original aprovada em revisão independente; ampliação para
-investigação full-screen solicitada e aprovada pelo usuário, em revisão.
+investigação full-screen solicitada e aprovada pelo usuário, também aprovada
+em revisão independente, sem bloqueios.
 Injeção do controlador nos testes UI preservada. Nenhuma implementação iniciada.
 **Spec:** [`../specs/2026-11-18-remote-monitor-design.md`](../specs/2026-11-18-remote-monitor-design.md).
 **Roteiro completo:** [`2026-11-18-remote-monitor-roadmap.md`](2026-11-18-remote-monitor-roadmap.md).

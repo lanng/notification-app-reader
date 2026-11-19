@@ -171,7 +171,8 @@ sem obter dados bancários ou mexer no ambiente produtivo para gerar evidência.
 - [x] Separar entregas por repositório e gates de autorização.
 - [x] Revisar versão original do plano da etapa A; factory fake no limite da
   Activity incorporada para impedir áudio real em testes UI.
-- [ ] Revisar ampliação aprovada: investigação full-screen opcional no protótipo.
+- [x] Revisar ampliação aprovada: investigação full-screen opcional no protótipo,
+  sem bloqueios. Validação física permanece futura e consentida separadamente.
 - [ ] Escolher execução e isolamento do trabalho Android com o usuário.
 - [ ] Executar etapa A e relatar evidência/limites, sem declarar remoto pronto.
 - [ ] Avisar e aguardar pasta do backend antes da etapa B.
