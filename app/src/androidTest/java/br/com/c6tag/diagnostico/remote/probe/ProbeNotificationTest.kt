@@ -107,6 +107,57 @@ class ProbeNotificationTest {
     }
 
     @Test
+    fun statusQueryIsReadOnlyAndPreservesStoredIdentityWhenPlatformReadsFail() {
+        val initial = controller.readStatus()
+
+        assertEquals(ProbeCapabilityStatus.GRANTED, initial.permission)
+        assertEquals(ProbeCapabilityStatus.GRANTED, initial.appNotifications)
+        assertEquals(ProbeChannelStatus.NOT_CREATED, initial.channel)
+        assertNull(initial.storedOccurrenceId)
+        assertTrue(platform.createdChannels.isEmpty())
+        assertTrue(platform.published.isEmpty())
+        assertTrue(platform.cancelAttempts.isEmpty())
+
+        platform.permission = false
+        platform.appNotificationsEnabled = false
+        platform.channelValue = NotificationChannel(
+            ProbeNotificationController.CHANNEL_ID,
+            "synthetic blocked channel",
+            NotificationManager.IMPORTANCE_NONE,
+        )
+        val denied = controller.readStatus()
+        assertEquals(ProbeCapabilityStatus.DENIED, denied.permission)
+        assertEquals(ProbeCapabilityStatus.DENIED, denied.appNotifications)
+        assertEquals(ProbeChannelStatus.BLOCKED, denied.channel)
+        assertNull(denied.storedOccurrenceId)
+        assertTrue(platform.createdChannels.isEmpty())
+        assertTrue(platform.published.isEmpty())
+        assertTrue(platform.cancelAttempts.isEmpty())
+
+        platform.permission = true
+        platform.appNotificationsEnabled = true
+        platform.channelValue = NotificationChannel(
+            ProbeNotificationController.CHANNEL_ID,
+            "synthetic available channel",
+            NotificationManager.IMPORTANCE_HIGH,
+        )
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val occurrenceId = store.currentOccurrenceId()
+        platform.permissionFailure = IllegalStateException("permission state unavailable")
+        platform.appNotificationsFailure = SecurityException("app notification state unavailable")
+        platform.channelFailure = IllegalStateException("channel state unavailable")
+
+        val unknown = controller.readStatus()
+        assertEquals(ProbeCapabilityStatus.UNKNOWN, unknown.permission)
+        assertEquals(ProbeCapabilityStatus.UNKNOWN, unknown.appNotifications)
+        assertEquals(ProbeChannelStatus.UNKNOWN, unknown.channel)
+        assertEquals("platform read failures must not hide the stored stop identity", occurrenceId, unknown.storedOccurrenceId)
+        assertEquals(1, platform.published.size)
+        assertTrue(platform.createdChannels.isEmpty())
+        assertTrue(platform.cancelAttempts.isEmpty())
+    }
+
+    @Test
     fun missingOrBlockedChannelNeverReportsAccepted() {
         platform.createChannelOnRequest = false
         assertEquals(ProbeSubmissionOutcome.CHANNEL_BLOCKED, controller.submitCritical())
@@ -361,6 +412,12 @@ class ProbeNotificationTest {
         @Volatile
         var channelValue: NotificationChannel? = null
         @Volatile
+        var permissionFailure: Exception? = null
+        @Volatile
+        var appNotificationsFailure: Exception? = null
+        @Volatile
+        var channelFailure: Exception? = null
+        @Volatile
         var createChannelOnRequest = true
         @Volatile
         var publishFailure: Exception? = null
@@ -381,9 +438,20 @@ class ProbeNotificationTest {
         val cancelAttempts = java.util.concurrent.CopyOnWriteArrayList<Int>()
         val cancelledIds = java.util.concurrent.CopyOnWriteArrayList<Int>()
 
-        override fun permissionGranted() = permission
-        override fun notificationsEnabled() = appNotificationsEnabled
-        override fun channel() = channelValue
+        override fun permissionGranted(): Boolean {
+            permissionFailure?.let { throw it }
+            return permission
+        }
+
+        override fun notificationsEnabled(): Boolean {
+            appNotificationsFailure?.let { throw it }
+            return appNotificationsEnabled
+        }
+
+        override fun channel(): NotificationChannel? {
+            channelFailure?.let { throw it }
+            return channelValue
+        }
 
         override fun createChannel(channel: NotificationChannel) {
             createdChannels += channel

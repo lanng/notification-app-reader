@@ -17,8 +17,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import br.com.c6tag.diagnostico.BuildConfig
 import br.com.c6tag.diagnostico.R
 import br.com.c6tag.diagnostico.monitor.ThemePreference
+import br.com.c6tag.diagnostico.remote.probe.DebugAlertProbeEntry
 
 @Composable
 internal fun MonitorSettingsScreen(state: MonitorUiState, actions: MonitorActions) {
@@ -119,6 +121,9 @@ internal fun MonitorSettingsScreen(state: MonitorUiState, actions: MonitorAction
             MonitorCaptureStatus(state, actions)
         }
         item { TextButton(onClick = actions.onHistory) { Text(stringResource(R.string.monitor_history_title)) } }
+        if (BuildConfig.DEBUG) {
+            item { DebugAlertProbeEntry.Content() }
+        }
     }
 }
 

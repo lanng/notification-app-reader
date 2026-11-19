@@ -27,6 +27,26 @@ internal enum class ProbeSubmissionOutcome {
     FAILED,
 }
 
+internal enum class ProbeCapabilityStatus {
+    GRANTED,
+    DENIED,
+    UNKNOWN,
+}
+
+internal enum class ProbeChannelStatus {
+    NOT_CREATED,
+    AVAILABLE,
+    BLOCKED,
+    UNKNOWN,
+}
+
+internal data class ProbeControllerStatus(
+    val permission: ProbeCapabilityStatus,
+    val appNotifications: ProbeCapabilityStatus,
+    val channel: ProbeChannelStatus,
+    val storedOccurrenceId: String?,
+)
+
 internal interface ProbeNotificationPlatform {
     fun permissionGranted(): Boolean
     fun notificationsEnabled(): Boolean
@@ -46,6 +66,29 @@ internal class ProbeNotificationController(
     private val platform = platformOverride ?: AndroidProbeNotificationPlatform(this.context)
     private val notificationFactory = notificationFactoryOverride ?: { occurrenceId ->
         buildNotification(occurrenceId)
+    }
+
+    fun readStatus(): ProbeControllerStatus {
+        val occurrenceId = try {
+            store.currentOccurrenceId()
+        } catch (_: Exception) {
+            null
+        }
+        val permission = readCapability { platform.permissionGranted() }
+        val appNotifications = readCapability { platform.notificationsEnabled() }
+        val channel = try {
+            when (val current = platform.channel()) {
+                null -> ProbeChannelStatus.NOT_CREATED
+                else -> if (current.importance == NotificationManager.IMPORTANCE_NONE) {
+                    ProbeChannelStatus.BLOCKED
+                } else {
+                    ProbeChannelStatus.AVAILABLE
+                }
+            }
+        } catch (_: Exception) {
+            ProbeChannelStatus.UNKNOWN
+        }
+        return ProbeControllerStatus(permission, appNotifications, channel, occurrenceId)
     }
 
     fun submitCritical(): ProbeSubmissionOutcome = synchronized(ProbeSessionStore.processLock) {
@@ -119,6 +162,13 @@ internal class ProbeNotificationController(
         }
         store.clearCurrentIfMatches(occurrenceId)
     }
+
+    private inline fun readCapability(read: () -> Boolean): ProbeCapabilityStatus =
+        try {
+            if (read()) ProbeCapabilityStatus.GRANTED else ProbeCapabilityStatus.DENIED
+        } catch (_: Exception) {
+            ProbeCapabilityStatus.UNKNOWN
+        }
 
     private fun createChannel() = NotificationChannel(
         CHANNEL_ID,
