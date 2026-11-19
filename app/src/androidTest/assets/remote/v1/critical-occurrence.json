@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "messageType": "alertOccurrence",
+  "monitorId": "synthetic-monitor",
+  "hostGeneration": "1",
+  "stateVersion": "13",
+  "cycleId": "synthetic-cycle",
+  "episodeId": "synthetic-critical",
+  "recipientId": "synthetic-support",
+  "dueNumber": "1",
+  "severity": "critical",
+  "scheduledAtMs": 600000,
+  "expiresAtMs": 900000
+}

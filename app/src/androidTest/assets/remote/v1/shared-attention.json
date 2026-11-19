@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "messageType": "sharedState",
+  "monitorId": "synthetic-monitor",
+  "hostGeneration": "1",
+  "stateVersion": "12",
+  "balanceCents": 28000,
+  "limitCents": 30000,
+  "needsReview": false,
+  "lastFinancialUpdateAtMs": 1000,
+  "lastHostContactAtMs": 2000,
+  "cycleId": "synthetic-cycle",
+  "episodeId": "synthetic-attention",
+  "severity": "attention"
+}
