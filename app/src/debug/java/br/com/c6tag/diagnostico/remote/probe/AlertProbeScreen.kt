@@ -2,12 +2,15 @@ package br.com.c6tag.diagnostico.remote.probe
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -16,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -25,6 +30,10 @@ internal data class AlertProbeScreenState(
     val status: ProbeControllerStatus,
     val message: String? = null,
     val showPermissionAction: Boolean = false,
+    val showFullScreenSettingsAction: Boolean = false,
+    val fullScreenOptionEnabled: Boolean = false,
+    val delayedStartPending: Boolean = false,
+    val presentationMode: Boolean = false,
 )
 
 internal data class AlertProbeScreenActions(
@@ -33,6 +42,10 @@ internal data class AlertProbeScreenActions(
     val onRequestPermission: () -> Unit,
     val onOpenSettings: () -> Unit,
     val onBack: () -> Unit,
+    val onFullScreenOptionChanged: (Boolean) -> Unit = {},
+    val onOpenFullScreenSettings: () -> Unit = {},
+    val onScheduleDelayedStart: () -> Unit = {},
+    val onCancelDelayedStart: () -> Unit = {},
 )
 
 @Composable
@@ -40,6 +53,37 @@ internal fun AlertProbeScreen(
     state: AlertProbeScreenState,
     actions: AlertProbeScreenActions,
 ) {
+    if (state.presentationMode) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(
+                text = stringResource(R.string.probe_critical_title),
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Text(
+                text = stringResource(R.string.probe_synthetic_only),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 24.dp),
+            )
+            Button(
+                onClick = actions.onStop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp)
+                    .testTag("probe-presentation-stop"),
+            ) {
+                Text(stringResource(R.string.probe_stop_sound))
+            }
+        }
+        return
+    }
+
     val canStart = state.status.sessionReadStatus == ProbeSessionReadStatus.CONFIRMED_EMPTY &&
         state.status.storedOccurrenceId == null &&
         state.status.permission != ProbeCapabilityStatus.DENIED &&
@@ -91,6 +135,61 @@ internal fun AlertProbeScreen(
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("probe-start"),
         ) {
             Text(stringResource(R.string.probe_start_test))
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    value = state.fullScreenOptionEnabled,
+                    role = Role.Checkbox,
+                    onValueChange = actions.onFullScreenOptionChanged,
+                )
+                .testTag("probe-full-screen-option"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = state.fullScreenOptionEnabled,
+                onCheckedChange = null,
+            )
+            Text(stringResource(R.string.probe_full_screen_option))
+        }
+        Text(
+            stringResource(
+                when (state.status.fullScreenAccess) {
+                    ProbeFullScreenAccessStatus.GRANTED -> R.string.probe_full_screen_access_granted
+                    ProbeFullScreenAccessStatus.DENIED -> R.string.probe_full_screen_access_denied
+                    ProbeFullScreenAccessStatus.UNKNOWN -> R.string.probe_full_screen_access_unknown
+                },
+            ),
+        )
+        if (state.showFullScreenSettingsAction) {
+            Button(
+                onClick = actions.onOpenFullScreenSettings,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("probe-full-screen-settings"),
+            ) {
+                Text(stringResource(R.string.probe_full_screen_settings_action))
+            }
+        }
+        Button(
+            onClick = actions.onScheduleDelayedStart,
+            enabled = canStart,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .testTag("probe-delayed-start"),
+        ) {
+            Text(stringResource(R.string.probe_delayed_start))
+        }
+        if (state.delayedStartPending) {
+            TextButton(
+                onClick = actions.onCancelDelayedStart,
+                modifier = Modifier.testTag("probe-cancel-delayed-start"),
+            ) {
+                Text(stringResource(R.string.probe_cancel_delayed_start))
+            }
         }
         if (state.status.storedOccurrenceId != null) {
             Button(

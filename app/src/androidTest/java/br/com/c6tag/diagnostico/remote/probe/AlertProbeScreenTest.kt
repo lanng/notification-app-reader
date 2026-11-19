@@ -6,6 +6,8 @@ import android.app.Instrumentation
 import android.app.Notification
 import android.app.NotificationChannel
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import br.com.c6tag.diagnostico.monitor.ThemePreference
@@ -21,7 +24,9 @@ import br.com.c6tag.diagnostico.ui.monitor.MonitorSettingsScreen
 import br.com.c6tag.diagnostico.ui.monitor.MonitorUiState
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -42,6 +47,9 @@ class AlertProbeScreenTest {
     private val context: Context
         get() = instrumentation.targetContext
     private val platform = FakePlatform()
+    private val fullScreenAccess = FakeFullScreenAccess()
+    private val delayScheduler = FakeDelayScheduler()
+    private val windowPresentation = FakeWindowPresentation()
     private val factoryCalls = AtomicInteger()
     private val openedActivities = CopyOnWriteArrayList<Activity>()
     private val resumedActivities = CopyOnWriteArrayList<Activity>()
@@ -51,16 +59,36 @@ class AlertProbeScreenTest {
     }
     private val readFailingPreferences by lazy { ReadFailingPreferences(preferences) }
     private val store by lazy { ProbeSessionStore(context, readFailingPreferences) }
-    private lateinit var previousFactory: (Context) -> ProbeNotificationController
+    private var monotonicNow = 10_000L
+    private lateinit var previousFactory: (Context, ProbeFullScreenAccess) -> ProbeNotificationController
+    private lateinit var previousFullScreenAccessFactory: (Context) -> ProbeFullScreenAccess
+    private lateinit var previousDelayedTriggerFactory: (Context, () -> Unit) -> ProbeDelayedTrigger
+    private lateinit var previousWindowPresentationFactory: (Activity) -> ProbeWindowPresentation
 
     private val factoryRule = object : TestRule {
         override fun apply(base: Statement, description: Description): Statement =
             object : Statement() {
                 override fun evaluate() {
                     previousFactory = ProbeDependencies.controllerFactory
-                    ProbeDependencies.controllerFactory = { activityContext ->
+                    previousFullScreenAccessFactory = ProbeDependencies.fullScreenAccessFactory
+                    previousDelayedTriggerFactory = ProbeDependencies.delayedTriggerFactory
+                    previousWindowPresentationFactory = ProbeDependencies.windowPresentationFactory
+                    ProbeDependencies.fullScreenAccessFactory = { fullScreenAccess }
+                    ProbeDependencies.controllerFactory = { activityContext, access ->
                         factoryCalls.incrementAndGet()
-                        ProbeNotificationController(activityContext, store, platform)
+                        ProbeNotificationController(
+                            activityContext,
+                            store,
+                            platform,
+                            fullScreenAccessOverride = access,
+                            monotonicClock = { monotonicNow },
+                        )
+                    }
+                    ProbeDependencies.delayedTriggerFactory = { _, submit ->
+                        ProbeDelayedTrigger(delayScheduler, submit)
+                    }
+                    ProbeDependencies.windowPresentationFactory = {
+                        windowPresentation
                     }
                     val callbacks = object : Application.ActivityLifecycleCallbacks {
                         override fun onActivityCreated(activity: Activity, state: Bundle?) {
@@ -88,6 +116,9 @@ class AlertProbeScreenTest {
                         }
                         application.unregisterActivityLifecycleCallbacks(callbacks)
                         ProbeDependencies.controllerFactory = previousFactory
+                        ProbeDependencies.fullScreenAccessFactory = previousFullScreenAccessFactory
+                        ProbeDependencies.delayedTriggerFactory = previousDelayedTriggerFactory
+                        ProbeDependencies.windowPresentationFactory = previousWindowPresentationFactory
                         preferences.edit().clear().commit()
                     }
                 }
@@ -378,6 +409,133 @@ class AlertProbeScreenTest {
         compose.onNodeWithText("teste passou", ignoreCase = true).assertIsNotDisplayed()
     }
 
+    @Test
+    fun fullScreenOptionStartsOffAndExplicitFakeSettingsReturnIsRequeriedOnResume() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.DENIED
+        fullScreenAccess.onOpenSettings = {
+            fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        }
+
+        compose.onNodeWithText("Tentar tela cheia neste teste")
+            .performScrollTo()
+            .assertIsDisplayed()
+        compose.onNodeWithTag("probe-full-screen-option")
+            .assertIsOff()
+            .performClick()
+            .assertIsOn()
+            .performClick()
+            .assertIsOff()
+        compose.onNodeWithText("Acesso a tela cheia: não concedido. A notificação normal e a ação Parar continuam disponíveis.")
+            .performScrollTo()
+            .assertIsDisplayed()
+
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            compose.onNodeWithTag("probe-full-screen-settings").performScrollTo().performClick()
+            assertEquals(1, fullScreenAccess.settingsOpens)
+            compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            compose.onNodeWithText("Acesso a tela cheia: disponível; isso não confirma que o Android exibirá a atividade.")
+                .performScrollTo()
+                .assertIsDisplayed()
+        } else {
+            compose.onNodeWithTag("probe-full-screen-settings").assertDoesNotExist()
+        }
+        compose.onNodeWithTag("probe-start").performScrollTo().performClick()
+        compose.waitUntil(5_000) { platform.published.size == 1 }
+        assertNull(platform.published.single().second.fullScreenIntent)
+        assertTrue("Tests never open real Android settings", platform.published.isNotEmpty())
+    }
+
+    @Test
+    fun explicitDelayedTapCanBeCancelledAndNeverPublishesOnItsOwn() {
+        compose.onNodeWithTag("probe-delayed-start").performScrollTo().performClick()
+        assertEquals(1, delayScheduler.entries.size)
+        assertTrue(platform.published.isEmpty())
+        compose.onNodeWithTag("probe-cancel-delayed-start").performScrollTo().performClick()
+        val cancelled = delayScheduler.entries.single()
+        assertTrue(cancelled.cancelled)
+        cancelled.action()
+        assertTrue(platform.published.isEmpty())
+    }
+
+    @Test
+    fun presentationStopControlUsesTheMatchingControllerStopWithoutStartingAgain() {
+        val controller = testController()
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val state = AlertProbeScreenState(
+            status = controller.readStatus(),
+            presentationMode = true,
+        )
+        var stopResult = false
+        compose.activity.setContent {
+            MonitorTheme {
+                AlertProbeScreen(
+                    state = state,
+                    actions = AlertProbeScreenActions(
+                        onStart = { error("presentation must not start") },
+                        onStop = { stopResult = controller.stop(occurrenceId) },
+                        onRequestPermission = { error("presentation must not request permission") },
+                        onOpenSettings = { error("presentation must not open settings") },
+                        onBack = { error("presentation must not navigate") },
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("probe-presentation-stop")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        compose.onNodeWithTag("probe-start").assertDoesNotExist()
+        compose.onNodeWithTag("probe-settings").assertDoesNotExist()
+        compose.onNodeWithTag("probe-permission").assertDoesNotExist()
+        compose.onNodeWithTag("probe-back").assertDoesNotExist()
+
+        assertTrue(stopResult)
+        assertNull(store.currentOccurrenceId())
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals(1, platform.published.size)
+    }
+
+    @Test
+    fun directlyLaunchedCurrentSessionShowsSyntheticPresentationAndExpiresWithoutCancelling() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val intent = Intent(context, AlertProbeActivity::class.java).apply {
+            action = ProbeNotificationController.SHOW_ALERT_ACTION
+            data = Uri.parse("monitor-probe://screen/$occurrenceId")
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+
+        // Direct launch validates the Activity handler only; it is not an FSI send or visibility proof.
+        val scenario = ActivityScenario.launch<AlertProbeActivity>(intent)
+        try {
+            scenario.onActivity { assertTrue(it is AlertProbeActivity) }
+            assertEquals(1, windowPresentation.shows)
+            assertEquals("Entry must not republish", 1, platform.published.size)
+            assertNotNull(platform.published.single().second.fullScreenIntent)
+
+            val expiry = delayScheduler.entries.single()
+            assertEquals(ProbeNotificationController.TIMEOUT_AFTER_MILLIS, expiry.delayMillis)
+            monotonicNow += ProbeNotificationController.TIMEOUT_AFTER_MILLIS
+            instrumentation.runOnMainSync { expiry.action() }
+
+            assertEquals(1, windowPresentation.clears)
+            assertEquals(occurrenceId, store.currentOccurrenceId())
+            assertTrue(platform.cancelledIds.isEmpty())
+            val actualFullScreenVisibilityObserved = false
+            assertFalse(actualFullScreenVisibilityObserved)
+        } finally {
+            scenario.close()
+        }
+    }
+
     private fun showActualSettings() {
         compose.activity.setContent {
             MonitorTheme {
@@ -397,6 +555,14 @@ class AlertProbeScreenTest {
     private fun tapText(text: String) {
         compose.onNodeWithText(text).performScrollTo().performClick()
     }
+
+    private fun testController() = ProbeNotificationController(
+        context,
+        store,
+        platform,
+        fullScreenAccessOverride = fullScreenAccess,
+        monotonicClock = { monotonicNow },
+    )
 
     private fun closeProbeActivities(monitor: Instrumentation.ActivityMonitor) {
         instrumentation.removeMonitor(monitor)
@@ -443,6 +609,48 @@ class AlertProbeScreenTest {
             cancelAttempts.incrementAndGet()
             cancelFailure?.let { throw it }
             cancelledIds += notificationId
+        }
+    }
+
+    private class FakeFullScreenAccess : ProbeFullScreenAccess {
+        var status = ProbeFullScreenAccessStatus.DENIED
+        var settingsOpens = 0
+        var onOpenSettings: (() -> Unit)? = null
+
+        override fun capabilityStatus() = status
+
+        override fun openSettings(activity: Activity): Boolean {
+            settingsOpens++
+            onOpenSettings?.invoke()
+            return true
+        }
+    }
+
+    private class FakeDelayScheduler : ProbeDelayScheduler {
+        val entries = mutableListOf<Entry>()
+
+        override fun schedule(delayMillis: Long, action: () -> Unit): ProbeScheduledTask =
+            Entry(delayMillis, action).also { entries += it }
+
+        class Entry(
+            val delayMillis: Long,
+            val action: () -> Unit,
+        ) : ProbeScheduledTask {
+            var cancelled = false
+            override fun cancel() {
+                cancelled = true
+            }
+        }
+    }
+
+    private class FakeWindowPresentation : ProbeWindowPresentation {
+        var shows = 0
+        var clears = 0
+        override fun show() {
+            shows++
+        }
+        override fun clear() {
+            clears++
         }
     }
 

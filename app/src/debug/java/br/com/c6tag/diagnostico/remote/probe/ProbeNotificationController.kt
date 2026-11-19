@@ -12,7 +12,9 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
+import androidx.core.net.toUri
 import br.com.c6tag.diagnostico.R
 import java.util.UUID
 
@@ -52,6 +54,7 @@ internal data class ProbeControllerStatus(
     val channel: ProbeChannelStatus,
     val sessionReadStatus: ProbeSessionReadStatus,
     val storedOccurrenceId: String?,
+    val fullScreenAccess: ProbeFullScreenAccessStatus = ProbeFullScreenAccessStatus.UNKNOWN,
 )
 
 internal interface ProbeNotificationPlatform {
@@ -67,12 +70,16 @@ internal class ProbeNotificationController(
     context: Context,
     private val store: ProbeSessionStore = ProbeSessionStore(context.applicationContext),
     platformOverride: ProbeNotificationPlatform? = null,
-    notificationFactoryOverride: ((String) -> Notification)? = null,
+    notificationFactoryOverride: ((String, PendingIntent?) -> Notification)? = null,
+    fullScreenAccessOverride: ProbeFullScreenAccess? = null,
+    private val monotonicClock: () -> Long = SystemClock::elapsedRealtime,
+    private val processIdentity: String = ProbeSessionStore.processIdentity,
 ) {
     private val context = context.applicationContext
     private val platform = platformOverride ?: AndroidProbeNotificationPlatform(this.context)
-    private val notificationFactory = notificationFactoryOverride ?: { occurrenceId ->
-        buildNotification(occurrenceId)
+    private val fullScreenAccess = fullScreenAccessOverride ?: AndroidProbeFullScreenAccess(this.context)
+    private val notificationFactory = notificationFactoryOverride ?: { occurrenceId, fullScreenIntent ->
+        buildNotification(occurrenceId, fullScreenIntent)
     }
     private var lastKnownOccurrenceId: String? = null
 
@@ -114,10 +121,12 @@ internal class ProbeNotificationController(
             channel,
             sessionReadStatus,
             occurrenceId,
+            readFullScreenAccess(),
         )
     }
 
-    fun submitCritical(): ProbeSubmissionOutcome = synchronized(ProbeSessionStore.processLock) {
+    fun submitCritical(useFullScreenIntent: Boolean = false): ProbeSubmissionOutcome =
+        synchronized(ProbeSessionStore.processLock) {
         try {
             if (!platform.permissionGranted() || !platform.notificationsEnabled()) {
                 return@synchronized ProbeSubmissionOutcome.PERMISSION_DENIED
@@ -136,14 +145,23 @@ internal class ProbeNotificationController(
             }
 
             val occurrenceId = UUID.randomUUID().toString()
-            if (!store.persistOccurrenceId(occurrenceId)) {
+            val startedAt = monotonicClock()
+            if (!store.persistOccurrence(occurrenceId, startedAt, processIdentity)) {
                 store.clearCurrentIfMatches(occurrenceId)
                 return@synchronized ProbeSubmissionOutcome.FAILED
             }
             lastKnownOccurrenceId = occurrenceId
 
-            val notification = try {
-                notificationFactory(occurrenceId)
+            val fullScreenPendingIntent = if (
+                useFullScreenIntent &&
+                readFullScreenAccess() == ProbeFullScreenAccessStatus.GRANTED
+            ) {
+                createFullScreenPendingIntent(occurrenceId)
+            } else {
+                null
+            }
+            var notification = try {
+                notificationFactory(occurrenceId, fullScreenPendingIntent)
             } catch (_: SecurityException) {
                 if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
                 return@synchronized ProbeSubmissionOutcome.PERMISSION_DENIED
@@ -151,12 +169,29 @@ internal class ProbeNotificationController(
                 if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
                 return@synchronized ProbeSubmissionOutcome.FAILED
             }
+            var publishWithFullScreenIntent = fullScreenPendingIntent != null
+            if (publishWithFullScreenIntent && readFullScreenAccess() != ProbeFullScreenAccessStatus.GRANTED) {
+                publishWithFullScreenIntent = false
+                notification = try {
+                    notificationFactory(occurrenceId, null)
+                } catch (_: SecurityException) {
+                    if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
+                    return@synchronized ProbeSubmissionOutcome.PERMISSION_DENIED
+                } catch (_: Exception) {
+                    if (store.clearCurrentIfMatches(occurrenceId)) lastKnownOccurrenceId = null
+                    return@synchronized ProbeSubmissionOutcome.FAILED
+                }
+            }
             try {
                 platform.publish(NOTIFICATION_ID, notification)
                 ProbeSubmissionOutcome.ACCEPTED
             } catch (_: SecurityException) {
-                cleanupFailedPublication(occurrenceId)
-                ProbeSubmissionOutcome.PERMISSION_DENIED
+                if (!publishWithFullScreenIntent) {
+                    cleanupFailedPublication(occurrenceId)
+                    ProbeSubmissionOutcome.PERMISSION_DENIED
+                } else {
+                    retryWithoutFullScreenIntent(occurrenceId)
+                }
             } catch (_: Exception) {
                 cleanupFailedPublication(occurrenceId)
                 ProbeSubmissionOutcome.FAILED
@@ -164,6 +199,28 @@ internal class ProbeNotificationController(
         } catch (_: SecurityException) {
             ProbeSubmissionOutcome.PERMISSION_DENIED
         } catch (_: Exception) {
+            ProbeSubmissionOutcome.FAILED
+        }
+    }
+
+    private fun retryWithoutFullScreenIntent(occurrenceId: String): ProbeSubmissionOutcome {
+        val fallbackNotification = try {
+            notificationFactory(occurrenceId, null)
+        } catch (_: SecurityException) {
+            cleanupFailedPublication(occurrenceId)
+            return ProbeSubmissionOutcome.PERMISSION_DENIED
+        } catch (_: Exception) {
+            cleanupFailedPublication(occurrenceId)
+            return ProbeSubmissionOutcome.FAILED
+        }
+        return try {
+            platform.publish(NOTIFICATION_ID, fallbackNotification)
+            ProbeSubmissionOutcome.ACCEPTED
+        } catch (_: SecurityException) {
+            cleanupFailedPublication(occurrenceId)
+            ProbeSubmissionOutcome.PERMISSION_DENIED
+        } catch (_: Exception) {
+            cleanupFailedPublication(occurrenceId)
             ProbeSubmissionOutcome.FAILED
         }
     }
@@ -183,6 +240,40 @@ internal class ProbeNotificationController(
             }
         }
 
+    /**
+     * Presentation authority is intentionally stronger than the retained UI stop hint: every
+     * call re-reads the durable identity and requires this process's still-live monotonic session.
+     */
+    fun isCurrentPresentationSession(expectedOccurrenceId: String): Boolean =
+        presentationRemainingMillis(expectedOccurrenceId) != null
+
+    fun presentationRemainingMillis(expectedOccurrenceId: String): Long? =
+        synchronized(ProbeSessionStore.processLock) {
+            try {
+                val occurrence = store.currentOccurrence() ?: return@synchronized null
+                if (occurrence.occurrenceId != expectedOccurrenceId) return@synchronized null
+                if (occurrence.processIdentity != processIdentity) return@synchronized null
+                val startedAt = occurrence.monotonicStartMillis ?: return@synchronized null
+                val now = monotonicClock()
+                if (now < startedAt) return@synchronized null
+                val elapsed = now - startedAt
+                if (elapsed >= TIMEOUT_AFTER_MILLIS) null else TIMEOUT_AFTER_MILLIS - elapsed
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    fun isCurrentPresentationIntent(intent: Intent): Boolean {
+        if (intent.action != SHOW_ALERT_ACTION) return false
+        val occurrenceId = intent.getStringExtra(EXTRA_OCCURRENCE_ID) ?: return false
+        val isCanonicalId = runCatching {
+            UUID.fromString(occurrenceId).toString() == occurrenceId
+        }.getOrDefault(false)
+        if (!isCanonicalId) return false
+        if (intent.data != "monitor-probe://screen/$occurrenceId".toUri()) return false
+        return isCurrentPresentationSession(occurrenceId)
+    }
+
     private fun cleanupFailedPublication(occurrenceId: String) {
         if (store.currentOccurrenceId() != occurrenceId) return
         try {
@@ -201,6 +292,30 @@ internal class ProbeNotificationController(
             ProbeCapabilityStatus.UNKNOWN
         }
 
+    private fun readFullScreenAccess(): ProbeFullScreenAccessStatus =
+        try {
+            fullScreenAccess.capabilityStatus()
+        } catch (_: Exception) {
+            ProbeFullScreenAccessStatus.UNKNOWN
+        }
+
+    private fun createFullScreenPendingIntent(occurrenceId: String): PendingIntent? = try {
+        val intent = Intent(context, AlertProbeActivity::class.java).apply {
+            action = SHOW_ALERT_ACTION
+            data = "monitor-probe://screen/$occurrenceId".toUri()
+            putExtra(EXTRA_OCCURRENCE_ID, occurrenceId)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        PendingIntent.getActivity(
+            context,
+            FULL_SCREEN_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    } catch (_: Exception) {
+        null
+    }
+
     private fun createChannel() = NotificationChannel(
         CHANNEL_ID,
         context.getString(R.string.probe_critical_channel_name),
@@ -218,7 +333,10 @@ internal class ProbeNotificationController(
         setBypassDnd(false)
     }
 
-    private fun buildNotification(occurrenceId: String): Notification {
+    private fun buildNotification(
+        occurrenceId: String,
+        fullScreenIntent: PendingIntent?,
+    ): Notification {
         val stopIntent = Intent(context, ProbeStopReceiver::class.java).apply {
             action = STOP_ACTION
             data = Uri.Builder()
@@ -241,6 +359,7 @@ internal class ProbeNotificationController(
             .setContentText(context.getString(R.string.probe_synthetic_only))
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setCategory(Notification.CATEGORY_REMINDER)
+            .setFullScreenIntent(fullScreenIntent, true)
             // Platform timeout/insistent flags are probes, not proof of 30 seconds of audio.
             .setTimeoutAfter(TIMEOUT_AFTER_MILLIS)
             .setAutoCancel(false)
@@ -259,7 +378,9 @@ internal class ProbeNotificationController(
         const val CHANNEL_ID = "monitor_critical_probe_v1"
         const val NOTIFICATION_ID = 6_099
         const val STOP_ACTION = "br.com.c6tag.diagnostico.remote.probe.STOP"
+        const val SHOW_ALERT_ACTION = "br.com.c6tag.diagnostico.remote.probe.SHOW_ALERT"
         const val EXTRA_OCCURRENCE_ID = "occurrenceId"
+        const val FULL_SCREEN_REQUEST_CODE = 1
         const val TIMEOUT_AFTER_MILLIS = 30_000L
     }
 }

@@ -24,7 +24,10 @@ class ManifestPrivacyTest {
         )
         val requested = packageInfo.requestedPermissions.orEmpty().toSet()
         assertFalse("INTERNET must not be requested", "android.permission.INTERNET" in requested)
-        assertFalse("full-screen intents must not be requested", "android.permission.USE_FULL_SCREEN_INTENT" in requested)
+        assertTrue(
+            "the debug-only probe may request full-screen-intent access",
+            "android.permission.USE_FULL_SCREEN_INTENT" in requested,
+        )
         assertTrue("local alerts must declare POST_NOTIFICATIONS", "android.permission.POST_NOTIFICATIONS" in requested)
         assertFalse("READ_EXTERNAL_STORAGE must not be requested", "android.permission.READ_EXTERNAL_STORAGE" in requested)
         assertFalse("WRITE_EXTERNAL_STORAGE must not be requested", "android.permission.WRITE_EXTERNAL_STORAGE" in requested)
@@ -156,6 +159,7 @@ class ManifestPrivacyTest {
     private companion object {
         val DOCUMENTED_PLATFORM_PERMISSIONS = setOf(
             "android.permission.POST_NOTIFICATIONS",
+            "android.permission.USE_FULL_SCREEN_INTENT",
             "android.permission.WAKE_LOCK",
             "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.RECEIVE_BOOT_COMPLETED",

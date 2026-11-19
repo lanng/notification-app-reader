@@ -306,7 +306,7 @@ class ProbeNotificationTest {
             context,
             store,
             platform,
-            notificationFactoryOverride = {
+            notificationFactoryOverride = { _, _ ->
                 throw IllegalStateException("synthetic notification construction failure")
             },
         )
@@ -559,6 +559,11 @@ class ProbeNotificationTest {
             return object : SharedPreferences.Editor by editor {
                 override fun putString(key: String, value: String?): SharedPreferences.Editor {
                     editor.putString(key, value)
+                    return this
+                }
+
+                override fun putLong(key: String, value: Long): SharedPreferences.Editor {
+                    editor.putLong(key, value)
                     return this
                 }
 

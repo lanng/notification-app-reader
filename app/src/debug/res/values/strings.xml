@@ -31,4 +31,13 @@
     <string name="probe_stop_failed">Não foi possível confirmar o cancelamento. Tente novamente pelo botão.</string>
     <string name="probe_settings_action">Abrir configurações de notificações</string>
     <string name="probe_settings_unavailable">Não foi possível abrir as configurações de notificações neste dispositivo.</string>
+    <string name="probe_full_screen_option">Tentar tela cheia neste teste</string>
+    <string name="probe_full_screen_access_granted">Acesso a tela cheia: disponível; isso não confirma que o Android exibirá a atividade.</string>
+    <string name="probe_full_screen_access_denied">Acesso a tela cheia: não concedido. A notificação normal e a ação Parar continuam disponíveis.</string>
+    <string name="probe_full_screen_access_unknown">Não foi possível consultar o acesso a tela cheia. A notificação normal continua disponível.</string>
+    <string name="probe_full_screen_settings_action">Configurar acesso à tela cheia</string>
+    <string name="probe_full_screen_settings_unavailable">Não foi possível abrir as configurações de tela cheia neste dispositivo.</string>
+    <string name="probe_delayed_start">Tentar em 5 segundos</string>
+    <string name="probe_cancel_delayed_start">Cancelar tentativa atrasada</string>
+    <string name="probe_delayed_start_scheduled">Teste agendado apenas neste processo; você pode cancelar antes de iniciar.</string>
 </resources>
