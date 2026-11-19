@@ -164,7 +164,8 @@ sem obter dados bancários ou mexer no ambiente produtivo para gerar evidência.
 
 - [x] Registrar ambiente informado e compatibilidade documental PHP/Laravel.
 - [x] Separar entregas por repositório e gates de autorização.
-- [ ] Revisar plano executável da etapa A.
+- [x] Revisar plano executável da etapa A (aprovado sem bloqueios; factory fake
+  explícita no limite da Activity incorporada para impedir áudio real em testes UI).
 - [ ] Escolher execução e isolamento do trabalho Android com o usuário.
 - [ ] Executar etapa A e relatar evidência/limites, sem declarar remoto pronto.
 - [ ] Avisar e aguardar pasta do backend antes da etapa B.

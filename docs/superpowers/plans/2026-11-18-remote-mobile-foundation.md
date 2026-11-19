@@ -10,7 +10,8 @@
 
 ---
 
-**Estado:** plano para revisão; nenhuma implementação iniciada.
+**Estado:** aprovado em revisão independente, sem bloqueios; recomendação de
+injeção do controlador nos testes UI incorporada. Nenhuma implementação iniciada.
 **Spec:** [`../specs/2026-11-18-remote-monitor-design.md`](../specs/2026-11-18-remote-monitor-design.md).
 **Roteiro completo:** [`2026-11-18-remote-monitor-roadmap.md`](2026-11-18-remote-monitor-roadmap.md).
 
@@ -53,6 +54,7 @@ O protótipo é hipótese, não promessa de áudio por 30 segundos.
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/DebugAlertProbeEntry.kt` | Entrada somente debug em Ajustes |
 | `app/src/release/java/br/com/c6tag/diagnostico/remote/probe/DebugAlertProbeEntry.kt` | Implementação vazia para release |
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/AlertProbeActivity.kt` | UI isolada com dados sintéticos e controles explícitos |
+| `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeDependencies.kt` | Factory debug substituível antes de abrir a Activity em teste |
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeNotificationController.kt` | Canal/notificação crítica, sem acessar finanças |
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeSessionStore.kt` | Sessão atual privada, sem dados financeiros |
 | `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeStopReceiver.kt` | Parada explícita apenas da sessão correspondente |
@@ -401,6 +403,7 @@ val notification = Notification.Builder(context, "monitor_critical_probe_v1")
 - Create: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/DebugAlertProbeEntry.kt`
 - Create: `app/src/release/java/br/com/c6tag/diagnostico/remote/probe/DebugAlertProbeEntry.kt`
 - Create: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/AlertProbeActivity.kt`
+- Create: `app/src/debug/java/br/com/c6tag/diagnostico/remote/probe/ProbeDependencies.kt`
 - Modify: `app/src/debug/AndroidManifest.xml`
 - Modify: `app/src/debug/res/values/strings.xml`
 - Modify: `app/src/main/java/br/com/c6tag/diagnostico/ui/monitor/MonitorSettingsScreen.kt`
@@ -410,7 +413,13 @@ val notification = Notification.Builder(context, "monitor_critical_probe_v1")
 - [ ] **Step 1:** Escrever teste UI que entra no probe a partir de Ajustes,
   vê “Dados sintéticos”, toca “Iniciar teste” com platform fake, vê “Parar som”,
   e verifica que abrir a tela nunca publica. Não usar executor de som real
-  como default de teste UI.
+  como default de teste UI. Antes de lançar qualquer Activity, instalar override
+  da factory em `ProbeDependencies`; a `AlertProbeActivity` resolve seu controller
+  por essa factory em `onCreate`, nunca construindo o platform real diretamente.
+  O override usa o mesmo `ProbeSessionStore` com platform fake e registra publish/
+  cancel. Fechar as Activities e limpar o override em `finally`/`@After`.
+  O teste deve falhar se a factory fake não for utilizada, incluindo o percurso
+  Ajustes → probe; não depender de canal silenciado para impedir áudio.
 - [ ] **Step 2:** Rodar filtro `AlertProbeScreenTest`, observar vermelho.
 - [ ] **Step 3:** Usar a mesma assinatura entre source sets:
 

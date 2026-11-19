@@ -223,7 +223,8 @@ confundido com recuperação automática por uma estimativa confiável.
 - [ ] Definir contrato de integração e planos separados por repositório.
 - [ ] Mapear arquivos/tarefas e evidência verificável, incluindo regressão local,
   falhas de rede, autorização, agenda, deduplicação e gate do áudio.
-- [ ] Revisar o plano antes da passagem à execução.
+- [x] Revisar o plano da etapa A antes da passagem à execução (aprovado;
+  factory fake de testes UI explicitada).
 - [ ] Antes de qualquer código do backend, avisar e aguardar a pasta do usuário.
 
 PHP 8.3 é compatível com o mínimo do Laravel 13. Planejar PostgreSQL como banco
@@ -236,7 +237,7 @@ Documentos de planejamento:
 - [Roteiro entre repositórios](superpowers/plans/2026-11-18-remote-monitor-roadmap.md):
   Android independente → backend separado → Android integrado → homologação.
 - [Plano executável da fundação Android](superpowers/plans/2026-11-18-remote-mobile-foundation.md):
-  em revisão independente; não implementa toda a spec nem cria o backend.
+  aprovado em revisão independente; não implementa toda a spec nem cria o backend.
 
 O plano Laravel detalhado será preparado no contexto da pasta/repositório
 confirmados pelo usuário. Esse roteiro não autoriza inicializá-los.
