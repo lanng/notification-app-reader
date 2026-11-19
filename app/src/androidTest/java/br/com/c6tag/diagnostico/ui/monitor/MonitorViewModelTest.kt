@@ -1,5 +1,6 @@
 package br.com.c6tag.diagnostico.ui.monitor
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -233,19 +234,34 @@ class MonitorViewModelTest {
 
     @Test fun pendingWithRemovedRawEvidenceShowsPersistedSummaryAndCanBeExplicitlyResolved() = runBlocking {
         Fixture().use { f ->
-            f.configure()
+            f.configure(awaitLabelPrefix = "pending-removed-raw")
             f.main { f.vm.beginReference() }
-            val draft = f.await { it.referenceDraft != null && !it.isBusy }.referenceDraft!!
+            val draft = f.await("active-reference-draft") {
+                it.referenceDraft != null && !it.isBusy
+            }.referenceDraft!!
             f.now = 1_200L
             f.record()
-            f.await { it.overview.pendingCount == 1L }
+            f.await("pending-count-one") { it.overview.pendingCount == 1L }
             f.now = 1_300L
-            assertNull(f.coordinator.confirmReference(ConfirmReference(
+            val externalConfirmation = f.coordinator.confirmReference(ConfirmReference(
                 draft.session.id, 1L, 20_000L, 30_000L, 0L,
-            )).rejection)
+            ))
+            assertNull(externalConfirmation.rejection)
+            val confirmedOverview = externalConfirmation.overview
+            val expectedReferenceId = requireNotNull(confirmedOverview.reference?.id)
+            val expectedRevision = confirmedOverview.revision.value
+            val observedReference = f.await("new-reference-observed") {
+                it.overview.reference?.id == expectedReferenceId &&
+                    it.overview.revision.value >= expectedRevision &&
+                    it.overview.referenceSession == null &&
+                    !it.isBusy
+            }
+            assertEquals(expectedReferenceId, observedReference.overview.reference?.id)
             f.recorder.clear()
             f.main { f.vm.loadPending() }
-            val missingRaw = f.await { !it.pendingLoading && it.pending.isNotEmpty() }
+            val missingRaw = f.await("pending-page-loaded") {
+                !it.pendingLoading && it.pending.isNotEmpty()
+            }
             assertFalse(missingRaw.pending.single().rawEvidenceAvailable)
             assertEquals(20_000L, missingRaw.overview.balanceCents)
             assertEquals(FinancialEntryKind.REFERENCE, f.coordinator.history(limit = 1).single().kind)
@@ -257,7 +273,9 @@ class MonitorViewModelTest {
                 f.vm.confirmPendingDecision()
                 f.vm.confirmPendingDecision()
             }
-            val applied = f.await { !it.isBusy && it.overview.balanceCents == 21_000L }
+            val applied = f.await("resolution-applied") {
+                !it.isBusy && it.overview.balanceCents == 21_000L
+            }
             assertNull(applied.pendingSelection)
             assertEquals(0L, applied.overview.pendingCount)
             assertEquals(21_000L, f.coordinator.overview().balanceCents)
@@ -445,16 +463,47 @@ class MonitorViewModelTest {
             vm = created!!
         }
         suspend fun await(predicate: (MonitorUiState) -> Boolean): MonitorUiState =
+            await(null, predicate)
+        suspend fun await(
+            stage: String?,
+            predicate: (MonitorUiState) -> Boolean,
+        ): MonitorUiState = try {
             withTimeout(5_000L) { vm.uiState.first(predicate) }
+        } catch (timeout: TimeoutCancellationException) {
+            if (stage != null) {
+                val state = vm.uiState.value
+                val overview = state.overview
+                val selection = state.pendingSelection
+                Log.e(
+                    "MonitorViewModelTest",
+                    "[T7-AWAIT-TIMEOUT] stage=$stage " +
+                        "busy=${state.isBusy} referenceId=${overview.reference?.id} " +
+                        "referenceSessionId=${overview.referenceSession?.id} " +
+                        "pendingCount=${overview.pendingCount} " +
+                        "visiblePendingRows=${state.pending.size} " +
+                        "selectedExpectedReferenceId=${selection?.expectedReferenceId} " +
+                        "selectedStale=${selection?.stale} " +
+                        "selectedConfirmation=${selection?.confirmation} " +
+                        "balanceCents=${overview.balanceCents} " +
+                        "revision=${overview.revision.value}/${overview.revision.cause}",
+                    timeout,
+                )
+            }
+            throw timeout
+        }
         suspend fun main(action: () -> Unit) = withContext(Dispatchers.Main) { action() }
-        suspend fun configure() {
-            await { !it.isLoading }
+        suspend fun configure(awaitLabelPrefix: String? = null) {
+            await(awaitLabelPrefix?.let { "$it.initial" }) { !it.isLoading }
             main { vm.beginReference() }
-            await { it.referenceDraft != null && !it.isBusy }
+            await(awaitLabelPrefix?.let { "$it.reference-draft" }) {
+                it.referenceDraft != null && !it.isBusy
+            }
             main { vm.updateBalance("200"); vm.reviewReference() }
             now = 1_100L
             main { vm.confirmReference() }
-            await { it.overview.reference != null && !it.isBusy }
+            await(awaitLabelPrefix?.let { "$it.reference-confirmed" }) {
+                it.overview.reference != null && !it.isBusy
+            }
         }
         fun record(key: String = "synthetic-pix") {
             recorder.recordNotification("synthetic.bank") {

@@ -15,6 +15,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -778,8 +779,7 @@ class AlertProbeScreenTest {
         val activity = compose.activity
         val expiry = delayScheduler.entries.single()
 
-        compose.activityRule.scenario.onActivity { it.finish() }
-        compose.waitUntil(5_000) { activity.isDestroyed }
+        compose.activityRule.scenario.moveToState(Lifecycle.State.DESTROYED)
         assertTrue(activity.isDestroyed)
         assertTrue(expiry.cancelled)
         assertEquals("Activity destruction clears the presentation once", 1, windowPresentation.clears)
