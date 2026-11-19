@@ -35,6 +35,17 @@ Android, com recursos adaptativos e fallbacks por densidade, sem substituir o
 Fonte, reprodução, prévias e hash em
 [`docs/testing/launcher-artwork-results.md`](docs/testing/launcher-artwork-results.md).
 
+**Fundação remota (somente debug):** há fixtures e uma entrada manual em
+Ajustes para uma notificação crítica sintética; isso não implementa comunicação
+remota. A opção de tela cheia começa desligada; ativá-la exige consentimento
+explícito e acesso especial concedido separadamente, com fallback de notificação
+comum. O release exclui a sonda. Áudio, visibilidade e duração real não foram
+comprovados em aparelho, e não há garantia de áudio por 30 segundos. Este app
+1.1 continua sem internet, backend, login ou compartilhamento entre aparelhos.
+Roteiro físico e evidências
+locais: [`docs/testing/critical-alert-probe-checklist.md`](docs/testing/critical-alert-probe-checklist.md)
+e [`docs/testing/remote-mobile-foundation-results.md`](docs/testing/remote-mobile-foundation-results.md).
+
 ## Como funciona
 
 - Consulte o saldo atual no C6 e informe um **saldo de referência**. Ele já

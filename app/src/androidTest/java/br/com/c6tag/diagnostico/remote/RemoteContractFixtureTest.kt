@@ -73,6 +73,16 @@ class RemoteContractFixtureTest {
         assertEquals("critical", first.getString("severity"))
 
         val identity = occurrenceIdentity(first)
+        assertEquals(
+            listOf(
+                "synthetic-monitor",
+                "synthetic-cycle",
+                "synthetic-critical",
+                "synthetic-support",
+                "1",
+            ),
+            identity,
+        )
         assertEquals(identity, occurrenceIdentity(repeated))
 
         assertIntegerJsonNumber(first, "scheduledAtMs")
