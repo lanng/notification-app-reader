@@ -200,6 +200,89 @@ class ProbeNotificationTest {
     }
 
     @Test
+    fun successfulStopSignalsAfterDurableClearAndIsolatesThrowingListener() {
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        var throwingListenerCalled = false
+        var observedOccurrenceId: String? = null
+        var observedAfterCancel = false
+        var observedAfterClear = false
+        val removeThrowingListener = ProbeNotificationController.observeSuccessfulStops {
+            throwingListenerCalled = true
+            error("synthetic stop observer failure")
+        }
+        val removeObserver = ProbeNotificationController.observeSuccessfulStops { stoppedId ->
+            observedOccurrenceId = stoppedId
+            observedAfterCancel = platform.cancelledIds ==
+                listOf(ProbeNotificationController.NOTIFICATION_ID)
+            observedAfterClear = store.currentOccurrenceId() == null
+        }
+
+        try {
+            assertTrue(controller.stop(occurrenceId))
+
+            assertTrue("Observer exceptions must not change successful Stop", throwingListenerCalled)
+            assertEquals(occurrenceId, observedOccurrenceId)
+            assertTrue("Notification cancellation must precede the signal", observedAfterCancel)
+            assertTrue("Durable session clear must precede the signal", observedAfterClear)
+            assertNull(store.currentOccurrenceId())
+        } finally {
+            removeObserver()
+            removeThrowingListener()
+        }
+    }
+
+    @Test
+    fun failedReadCancelCommitAndStaleStopsDoNotSignalAndRemovedListenerStaysRemoved() {
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val staleOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        val observedStops = mutableListOf<String>()
+        val removeObserver = ProbeNotificationController.observeSuccessfulStops(observedStops::add)
+
+        try {
+            readFailingPreferences.failStringReads = true
+            assertFalse(controller.stop(staleOccurrenceId))
+            assertTrue(observedStops.isEmpty())
+            assertTrue(platform.cancelAttempts.isEmpty())
+
+            readFailingPreferences.failStringReads = false
+            platform.cancelFailure = IllegalStateException("synthetic Stop cancellation failure")
+            assertFalse(controller.stop(staleOccurrenceId))
+            assertTrue(observedStops.isEmpty())
+            assertEquals(staleOccurrenceId, store.currentOccurrenceId())
+            assertTrue(platform.cancelledIds.isEmpty())
+
+            platform.cancelFailure = null
+            val replacementOccurrenceId = UUID.randomUUID().toString()
+            assertTrue(store.persistOccurrenceId(replacementOccurrenceId))
+            assertFalse(controller.stop(staleOccurrenceId))
+            assertTrue(observedStops.isEmpty())
+            assertEquals(replacementOccurrenceId, store.currentOccurrenceId())
+            assertTrue("A stale ID must not cancel the replacement", platform.cancelledIds.isEmpty())
+
+            val commitPreferences = CommitFailingPreferences(preferences).apply {
+                failCommit = false
+            }
+            val commitController = ProbeNotificationController(
+                context,
+                ProbeSessionStore(context, commitPreferences),
+                platform,
+            )
+            commitPreferences.failCommit = true
+            assertFalse(commitController.stop(replacementOccurrenceId))
+            assertTrue("Failed durable clear must not emit a successful Stop signal", observedStops.isEmpty())
+            assertEquals(replacementOccurrenceId, store.currentOccurrenceId())
+
+            removeObserver()
+            commitPreferences.failCommit = false
+            assertTrue(commitController.stop(replacementOccurrenceId))
+            assertTrue("Disposed observer must receive no later Stop signal", observedStops.isEmpty())
+        } finally {
+            removeObserver()
+        }
+    }
+
+    @Test
     fun staleStopCannotCancelReplacementAfterStorageReadRecovers() {
         assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
         val oldOccurrenceId = requireNotNull(store.currentOccurrenceId())
@@ -554,6 +637,9 @@ class ProbeNotificationTest {
     private class CommitFailingPreferences(
         private val delegate: SharedPreferences,
     ) : SharedPreferences by delegate {
+        @Volatile
+        var failCommit = true
+
         override fun edit(): SharedPreferences.Editor {
             val editor = delegate.edit()
             return object : SharedPreferences.Editor by editor {
@@ -572,7 +658,7 @@ class ProbeNotificationTest {
                     return this
                 }
 
-                override fun commit(): Boolean = false
+                override fun commit(): Boolean = if (failCommit) false else editor.commit()
             }
         }
     }

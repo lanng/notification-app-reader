@@ -80,6 +80,14 @@ internal fun AlertProbeScreen(
             ) {
                 Text(stringResource(R.string.probe_stop_sound))
             }
+            state.message?.let {
+                Text(
+                    text = it,
+                    modifier = Modifier
+                        .padding(top = 16.dp)
+                        .testTag("probe-presentation-message"),
+                )
+            }
         }
         return
     }

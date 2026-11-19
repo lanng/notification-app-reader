@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,12 +30,19 @@ internal class AlertProbeActivity : ComponentActivity() {
     private var presentationMode by mutableStateOf(false)
     private var presentationOccurrenceId: String? = null
     private var restoredOccurrenceHint: String? = null
+    private val stopSignalLock = Any()
+    private val stopSignalHandler = Handler(Looper.getMainLooper())
+    private val pendingStopSignalCallbacks = mutableSetOf<Runnable>()
+    private var removeStopSignalObserver: (() -> Unit)? = null
+    private var destroyed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         restoredOccurrenceHint = savedInstanceState?.getString(STATE_OCCURRENCE_HINT)
         fullScreenAccess = ProbeDependencies.fullScreenAccessFactory(applicationContext)
         controller = ProbeDependencies.controllerFactory(applicationContext, fullScreenAccess)
+        removeStopSignalObserver =
+            ProbeNotificationController.observeSuccessfulStops(::enqueueSuccessfulStop)
         windowPresentation = ProbeDependencies.windowPresentationFactory(this)
         delayedTrigger = ProbeDependencies.delayedTriggerFactory(applicationContext) {
             delayedStartPending = false
@@ -110,6 +119,13 @@ internal class AlertProbeActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        val removeObserver = synchronized(stopSignalLock) {
+            destroyed = true
+            pendingStopSignalCallbacks.forEach(stopSignalHandler::removeCallbacks)
+            pendingStopSignalCallbacks.clear()
+            removeStopSignalObserver.also { removeStopSignalObserver = null }
+        }
+        removeObserver?.invoke()
         if (::delayedTrigger.isInitialized) delayedTrigger.cancel()
         if (::presentationExpiryTrigger.isInitialized) presentationExpiryTrigger.cancel()
         if (presentationMode && ::windowPresentation.isInitialized) clearPresentationWindow()
@@ -229,6 +245,26 @@ internal class AlertProbeActivity : ComponentActivity() {
     private fun hasCurrentPresentationSession(): Boolean {
         val occurrenceId = presentationOccurrenceId ?: return false
         return controller.isCurrentPresentationSession(occurrenceId)
+    }
+
+    private fun enqueueSuccessfulStop(occurrenceId: String) {
+        lateinit var callback: Runnable
+        callback = Runnable {
+            val activityIsAlive = synchronized(stopSignalLock) {
+                pendingStopSignalCallbacks.remove(callback)
+                !destroyed
+            }
+            if (!activityIsAlive) return@Runnable
+            if (!presentationMode || presentationOccurrenceId != occurrenceId) return@Runnable
+            leavePresentation(finishActivity = true)
+        }
+        synchronized(stopSignalLock) {
+            if (destroyed) return
+            pendingStopSignalCallbacks += callback
+            if (!stopSignalHandler.post(callback)) {
+                pendingStopSignalCallbacks -= callback
+            }
+        }
     }
 
     private fun refreshStatus() {

@@ -103,20 +103,28 @@ class ProbeStopReceiverTest {
         assertFalse(receiverController.isCurrentPresentationIntent(oldProcessShowIntent))
 
         val receiver = ProbeStopReceiver { receiverController }
-        receiver.onReceive(context, stopIntent(UUID.randomUUID().toString()))
+        val successfulStops = mutableListOf<String>()
+        val removeObserver = ProbeNotificationController.observeSuccessfulStops(successfulStops::add)
+        try {
+            receiver.onReceive(context, stopIntent(UUID.randomUUID().toString()))
 
-        assertEquals("Wrong ID must leave the prior-process probe intact", occurrenceId, receiverStore.currentOccurrenceId())
-        assertTrue(platform.cancelAttempts.isEmpty())
-        assertEquals(1, platform.published.size)
+            assertEquals("Wrong ID must leave the prior-process probe intact", occurrenceId, receiverStore.currentOccurrenceId())
+            assertTrue(platform.cancelAttempts.isEmpty())
+            assertEquals(1, platform.published.size)
+            assertTrue(successfulStops.isEmpty())
 
-        receiver.onReceive(context, stopIntent(occurrenceId))
+            receiver.onReceive(context, stopIntent(occurrenceId))
 
-        assertNull(receiverStore.currentOccurrenceId())
-        assertNull(receiverStore.currentOccurrence())
-        assertTrue("Matching stop must clear the durable ID and metadata", preferences.all.isEmpty())
-        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelAttempts)
-        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds)
-        assertEquals("Receiver stop must not publish or replace a notification", 1, platform.published.size)
+            assertNull(receiverStore.currentOccurrenceId())
+            assertNull(receiverStore.currentOccurrence())
+            assertTrue("Matching stop must clear the durable ID and metadata", preferences.all.isEmpty())
+            assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelAttempts)
+            assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds)
+            assertEquals("Receiver stop must not publish or replace a notification", 1, platform.published.size)
+            assertEquals("Current process must observe a successful stop from a prior process session", listOf(occurrenceId), successfulStops)
+        } finally {
+            removeObserver()
+        }
     }
 
     @Test

@@ -17,6 +17,7 @@ import android.provider.Settings
 import androidx.core.net.toUri
 import br.com.c6tag.diagnostico.R
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * ACCEPTED means the notification platform call returned normally; it does not prove delivery,
@@ -225,8 +226,8 @@ internal class ProbeNotificationController(
         }
     }
 
-    fun stop(expectedOccurrenceId: String): Boolean =
-        synchronized(ProbeSessionStore.processLock) {
+    fun stop(expectedOccurrenceId: String): Boolean {
+        val stopped = synchronized(ProbeSessionStore.processLock) {
             try {
                 val currentOccurrenceId = store.currentOccurrenceId()
                 lastKnownOccurrenceId = currentOccurrenceId
@@ -239,6 +240,19 @@ internal class ProbeNotificationController(
                 false
             }
         }
+        if (stopped) notifySuccessfulStop(expectedOccurrenceId)
+        return stopped
+    }
+
+    private fun notifySuccessfulStop(occurrenceId: String) {
+        successfulStopListeners.forEach { listener ->
+            try {
+                listener(occurrenceId)
+            } catch (_: Exception) {
+                // One process-local observer must not change Stop's result or block other observers.
+            }
+        }
+    }
 
     /**
      * Presentation authority is intentionally stronger than the retained UI stop hint: every
@@ -375,6 +389,13 @@ internal class ProbeNotificationController(
     }
 
     companion object {
+        private val successfulStopListeners = CopyOnWriteArrayList<(String) -> Unit>()
+
+        internal fun observeSuccessfulStops(listener: (String) -> Unit): () -> Unit {
+            successfulStopListeners += listener
+            return { successfulStopListeners -= listener }
+        }
+
         const val CHANNEL_ID = "monitor_critical_probe_v1"
         const val NOTIFICATION_ID = 6_099
         const val STOP_ACTION = "br.com.c6tag.diagnostico.remote.probe.STOP"
