@@ -5,7 +5,7 @@
     <string name="monitor_alert_review_title">Confira o saldo das tags</string>
     <string name="monitor_alert_content">Saldo estimado: %1$s. Limite de atenção: %2$s.</string>
     <string name="monitor_alert_acknowledge">Entendi</string>
-    <string name="app_name">Monitor de tags</string>
+    <string name="app_name">Tag Alert</string>
     <string name="diagnostic_title">C6 Tag Diagnóstico</string>
     <string name="diagnostic_no_balance">Diagnóstico: não calcula saldo</string>
     <string name="estimate_warning">A estimativa futura depende das notificações recebidas e pode estar incompleta.</string>

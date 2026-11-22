@@ -50,7 +50,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "br.com.c6tag.diagnostico"
+        applicationId = "br.com.tagalert.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 2

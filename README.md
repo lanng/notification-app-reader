@@ -145,8 +145,9 @@ O APK de depuração, quando o build concluir, fica em
 
 ## Configuração local
 
-O nome de pacote deste app é `br.com.c6tag.diagnostico`. O pacote de origem do
-C6 tem precedência `-Pc6PackageName=...`, depois `c6.packageName` em
+O `applicationId` deste app para instalação é `br.com.tagalert.app`; o namespace
+Android interno continua `br.com.c6tag.diagnostico`. O pacote de origem do C6 tem
+precedência `-Pc6PackageName=...`, depois `c6.packageName` em
 `local.properties`, e por fim vazio. Uma opção `-P` explicitamente vazia também
 prevalece e mantém a captura desativada. Valor vazio significa **off**; nunca
 significa observar todos os pacotes.
@@ -233,9 +234,13 @@ instalação do usuário. XMLs e limites da evidência estão no relatório do m
 
 Roteiro físico ainda não executado:
 [`docs/testing/monitor-local-s23-checklist.md`](docs/testing/monitor-local-s23-checklist.md).
-Atualizar preservando dados usa o mesmo applicationId
-`br.com.c6tag.diagnostico`, versão 1.1/código 2, sem desinstalar ou limpar dados.
-Autorizações antigas não substituem o consentimento para essa atualização.
+A nova identidade instalada `br.com.tagalert.app` é diferente do pacote de versões
+anteriores (`br.com.c6tag.diagnostico`). O Android não a tratará como atualização:
+ela será instalada separadamente e não herdará os dados nem as permissões ou
+concessões da versão anterior. A versão antiga e seus dados só mudam por uma ação
+separada do usuário. Qualquer instalação física continua exigindo autorização
+explícita; confira novamente e conceda manualmente as permissões necessárias para
+a nova instalação.
 
 ## Desenvolvimento e Git
 
