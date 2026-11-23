@@ -166,6 +166,75 @@ internal class HostActivation internal constructor(
             "accessToken=[REDACTED], createdAtMillis=$createdAtMillis)"
 }
 
+internal data class RemoteHostOwnerContext(
+    val owner: OwnerAccount,
+    val origin: String,
+)
+
+internal class RemoteHostAttemptId private constructor(
+    internal val value: String,
+) {
+    override fun equals(other: Any?): Boolean =
+        other is RemoteHostAttemptId && value == other.value
+
+    override fun hashCode(): Int = value.hashCode()
+
+    override fun toString(): String = value
+
+    internal companion object {
+        fun parse(value: String): RemoteHostAttemptId? =
+            value.takeIf { it.matches(Regex("[0-9a-f]{32}")) }?.let(::RemoteHostAttemptId)
+
+        fun generated(value: String): RemoteHostAttemptId =
+            requireNotNull(parse(value))
+    }
+}
+
+internal enum class RemoteHostSessionProblem {
+    INVALID_CONTEXT,
+    ORIGIN_MISMATCH,
+    OWNER_MISMATCH,
+    UNSUPPORTED_VERSION,
+    CORRUPT_RECORD,
+    AUTHENTICATION_FAILED,
+    KEY_UNAVAILABLE,
+    PERSISTENCE_FAILURE,
+    NO_MATCHING_PENDING_ATTEMPT,
+    NO_MATCHING_ACTIVE_SESSION,
+    SESSION_CONTEXT_MISMATCH,
+    ATTEMPT_ALREADY_PENDING,
+}
+
+internal sealed interface RemoteHostSessionLoad {
+    data object Empty : RemoteHostSessionLoad
+
+    data class PendingAttempt(
+        val attemptId: RemoteHostAttemptId,
+        val expectedGeneration: OwnerGeneration,
+    ) : RemoteHostSessionLoad
+
+    class ActiveSession(
+        val activation: HostActivation,
+    ) : RemoteHostSessionLoad {
+        override fun toString(): String = "ActiveSession($activation)"
+    }
+
+    data class Unavailable(
+        val problem: RemoteHostSessionProblem,
+    ) : RemoteHostSessionLoad
+}
+
+internal sealed interface RemoteHostSessionWriteResult {
+    data class PendingAttemptStarted(
+        val attemptId: RemoteHostAttemptId,
+    ) : RemoteHostSessionWriteResult
+
+    data object ActiveSessionCommitted : RemoteHostSessionWriteResult
+    data object PendingAttemptCleared : RemoteHostSessionWriteResult
+    data object ActiveSessionCleared : RemoteHostSessionWriteResult
+    data class Rejected(val problem: RemoteHostSessionProblem) : RemoteHostSessionWriteResult
+}
+
 internal data class VerifiedHostAccess(
     val installationId: String,
     val monitorId: String,
