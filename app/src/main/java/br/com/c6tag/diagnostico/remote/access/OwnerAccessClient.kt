@@ -16,6 +16,9 @@ import kotlinx.coroutines.ensureActive
 internal class OwnerAccessClient(
     private val transport: OwnerAccessTransport = HttpsOwnerAccessTransport(),
 ) {
+    val canonicalOrigin: String?
+        get() = verifiedOrigin()
+
     suspend fun discoverOwnerMonitor(
         owner: OwnerAccount,
         firebaseIdToken: SecretValue,
@@ -35,7 +38,12 @@ internal class OwnerAccessClient(
 
         response as ExchangeResult.HttpResponse
         if (response.statusCode != 200) {
-            val failure = serverFailure(response.statusCode, response.body, isActivation = false)
+            val failure = serverFailure(
+                statusCode = response.statusCode,
+                body = response.body,
+                isActivation = false,
+                retryAfterSeconds = response.retryAfterSeconds,
+            )
             currentCoroutineContext().ensureActive()
             return failure
         }
@@ -84,7 +92,12 @@ internal class OwnerAccessClient(
 
         response as ExchangeResult.HttpResponse
         if (response.statusCode != 200 && response.statusCode != 201) {
-            val failure = serverFailure(response.statusCode, response.body, isActivation = true)
+            val failure = serverFailure(
+                statusCode = response.statusCode,
+                body = response.body,
+                isActivation = true,
+                retryAfterSeconds = response.retryAfterSeconds,
+            )
             currentCoroutineContext().ensureActive()
             return failure
         }
@@ -141,7 +154,12 @@ internal class OwnerAccessClient(
 
         response as ExchangeResult.HttpResponse
         if (response.statusCode != 200) {
-            val failure = serverFailure(response.statusCode, response.body, isActivation = false)
+            val failure = serverFailure(
+                statusCode = response.statusCode,
+                body = response.body,
+                isActivation = false,
+                retryAfterSeconds = response.retryAfterSeconds,
+            )
             currentCoroutineContext().ensureActive()
             return failure
         }
@@ -300,7 +318,11 @@ internal class OwnerAccessClient(
                         },
                     )
                 } else {
-                    ExchangeResult.HttpResponse(result.statusCode, result.body)
+                    ExchangeResult.HttpResponse(
+                        statusCode = result.statusCode,
+                        body = result.body,
+                        retryAfterSeconds = result.retryAfterSeconds,
+                    )
                 }
             }
         }
@@ -341,12 +363,19 @@ internal class OwnerAccessClient(
         statusCode: Int,
         body: ByteArray,
         isActivation: Boolean,
+        retryAfterSeconds: Long? = null,
     ): OwnerAccessResult.Failure {
         val code = parseResponse(body, ::readErrorCode)
         val reason = code?.let { knownFailure(statusCode, it) }
             ?: OwnerAccessFailureReason.INVALID_RESPONSE
         val disposition = if (isActivation) dispositionForHttpStatus(statusCode) else null
-        return OwnerAccessResult.Failure(reason, disposition)
+        return OwnerAccessResult.Failure(
+            reason = reason,
+            activationDisposition = disposition,
+            retryAfterSeconds = retryAfterSeconds.takeIf {
+                statusCode == 429 && reason == OwnerAccessFailureReason.RATE_LIMITED
+            },
+        )
     }
 
     private fun dispositionForHttpStatus(statusCode: Int?): ActivationDisposition =
@@ -679,6 +708,7 @@ internal class OwnerAccessClient(
         data class HttpResponse(
             val statusCode: Int,
             val body: ByteArray,
+            val retryAfterSeconds: Long? = null,
         ) : ExchangeResult
 
         data class Failure(

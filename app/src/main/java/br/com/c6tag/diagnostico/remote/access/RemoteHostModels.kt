@@ -78,6 +78,7 @@ internal sealed interface OwnerAccessTransportResult {
     class Response(
         val statusCode: Int,
         val body: ByteArray,
+        val retryAfterSeconds: Long? = null,
     ) : OwnerAccessTransportResult {
         override fun toString(): String =
             "Response(statusCode=$statusCode, body=[REDACTED])"
@@ -107,6 +108,7 @@ internal sealed interface OwnerAccessResult<out T> {
     data class Failure(
         val reason: OwnerAccessFailureReason,
         val activationDisposition: ActivationDisposition? = null,
+        val retryAfterSeconds: Long? = null,
     ) : OwnerAccessResult<Nothing>
 }
 
@@ -240,4 +242,41 @@ internal data class VerifiedHostAccess(
     val monitorId: String,
     val membershipId: String,
     val generation: OwnerGeneration,
+)
+
+internal enum class RemoteHostPhase {
+    LOCAL_ONLY,
+    SIGNING_IN,
+    SIGNED_IN_API_NOT_READY,
+    DISCOVERING,
+    CONFIRMATION_READY,
+    REAUTHENTICATION_REQUIRED,
+    ACTIVATING,
+    ACTIVE_CONFIRMED,
+    PREVIOUSLY_ACTIVE_OFFLINE_STALE,
+    CREDENTIAL_LOST,
+    ACTIVATION_UNCERTAIN,
+    RECOVERABLE_ERROR,
+}
+
+internal data class HostActivationConfirmation(
+    val confirmationId: String,
+    val firebaseProjectId: String,
+    val uid: String,
+    val origin: String,
+    val generation: OwnerGeneration,
+    val monitorId: String?,
+    val existingHostInstallationId: String?,
+) {
+    val requiresHostReplacementWarning: Boolean
+        get() = existingHostInstallationId != null
+}
+
+internal data class RemoteHostViewState(
+    val phase: RemoteHostPhase,
+    val confirmation: HostActivationConfirmation? = null,
+    val verifiedHost: VerifiedHostAccess? = null,
+    val safeFailure: OwnerAccessFailureReason? = null,
+    val retryAfterSeconds: Long? = null,
+    val hostValidationFailure: OwnerAccessFailureReason? = null,
 )

@@ -133,7 +133,11 @@ internal class HttpsOwnerAccessTransport(
                 val result = if (response.tooLarge) {
                     OwnerAccessTransportResult.ResponseTooLarge(statusCode)
                 } else {
-                    OwnerAccessTransportResult.Response(statusCode, response.bytes)
+                    OwnerAccessTransportResult.Response(
+                        statusCode = statusCode,
+                        body = response.bytes,
+                        retryAfterSeconds = readRetryAfterSeconds(connection, statusCode),
+                    )
                 }
                 continuation.resumeIfActive(result)
             } catch (_: IOException) {
@@ -238,6 +242,23 @@ internal class HttpsOwnerAccessTransport(
         }
     }
 
+    private fun readRetryAfterSeconds(
+        connection: HttpsURLConnection,
+        statusCode: Int,
+    ): Long? {
+        if (statusCode != RATE_LIMITED_STATUS_CODE) {
+            return null
+        }
+        val value = connection.getHeaderField(RETRY_AFTER_HEADER) ?: return null
+        if (value.isEmpty() || value.length > MAX_RETRY_AFTER_DIGITS) {
+            return null
+        }
+        if (value.any { character -> character !in '0'..'9' }) {
+            return null
+        }
+        return value.toLongOrNull()
+    }
+
     private fun CancellableContinuation<OwnerAccessTransportResult>.resumeIfActive(
         result: OwnerAccessTransportResult,
     ) {
@@ -264,6 +285,9 @@ internal class HttpsOwnerAccessTransport(
         const val READ_TIMEOUT_MILLIS = 30_000
         const val READ_BUFFER_SIZE = 4_096
         const val JSON_CONTENT_TYPE = "application/json"
+        const val RATE_LIMITED_STATUS_CODE = 429
+        const val RETRY_AFTER_HEADER = "Retry-After"
+        const val MAX_RETRY_AFTER_DIGITS = 19
         val ACTIVATION_BODY_PATTERN =
             Regex("""\{"confirmation":true,"expectedGeneration":"(0|[1-9][0-9]*)"\}""")
     }

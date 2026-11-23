@@ -265,6 +265,77 @@ class OwnerAccessClientTest {
     }
 
     @Test
+    fun rateLimitedHttpsResponseExposesValidatedRetryAfterSecondsAsSafeMetadata() = runBlocking {
+        val connection = FakeHttpsConnection(
+            url = URL("https://api.example.test/api/v1/owner/host-activations"),
+            responseBody = """{"code":"rate_limited","message":"$SECRET_SENTINEL"}"""
+                .toByteArray(StandardCharsets.UTF_8),
+            responseStatusCode = 429,
+        ).apply {
+            setResponseProperty("Retry-After", "37")
+        }
+        val result = OwnerAccessClient(
+            HttpsOwnerAccessTransport(
+                ownerApiOrigin = "https://api.example.test",
+                connectionFactory = HttpsConnectionFactory { connection },
+            ),
+        ).activateHost(
+            owner = OWNER,
+            firebaseIdToken = TOKEN,
+            expectedGeneration = generation("0"),
+        )
+        val accessFailure = failure(result)
+
+        assertEquals(OwnerAccessFailureReason.RATE_LIMITED, accessFailure.reason)
+        assertEquals(ActivationDisposition.KNOWN_NOT_WRITTEN, accessFailure.activationDisposition)
+        assertEquals(37L, accessFailure.retryAfterSeconds)
+        assertFalse(accessFailure.toString().contains(SECRET_SENTINEL))
+        assertFalse(accessFailure.reason.safeMessage.contains(SECRET_SENTINEL))
+    }
+
+    @Test
+    fun invalidRetryAfterValuesAreIgnoredAndCanonicalOriginIsReadOnly() = runBlocking {
+        val canonicalClient = OwnerAccessClient(
+            HttpsOwnerAccessTransport(
+                ownerApiOrigin = "https://API.EXAMPLE.TEST/",
+                connectionFactory = HttpsConnectionFactory {
+                    error("Reading configured origin must not open a connection")
+                },
+            ),
+        )
+        assertEquals("https://api.example.test", canonicalClient.canonicalOrigin)
+
+        listOf(
+            "",
+            "-1",
+            "+1",
+            "1.0",
+            "9223372036854775808",
+            "99999999999999999999",
+            "Thu, 01 Jan 1970 00:00:37 GMT",
+            " 37",
+            "٣٧",
+        ).forEach { headerValue ->
+            val connection = FakeHttpsConnection(
+                url = URL("https://api.example.test/api/v1/owner/host-activations"),
+                responseBody = """{"code":"rate_limited"}"""
+                    .toByteArray(StandardCharsets.UTF_8),
+                responseStatusCode = 429,
+            ).apply {
+                setResponseProperty("Retry-After", headerValue)
+            }
+            val result = OwnerAccessClient(
+                HttpsOwnerAccessTransport(
+                    ownerApiOrigin = "https://api.example.test",
+                    connectionFactory = HttpsConnectionFactory { connection },
+                ),
+            ).activateHost(OWNER, TOKEN, generation("0"))
+
+            assertNull(failure(result).retryAfterSeconds)
+        }
+    }
+
+    @Test
     fun installationDiscoveryUsesPatAndChecksAllSavedHostContextFields() = runBlocking {
         val context = expectedHostContext(OWNER)
         val transport = ScriptedOwnerAccessTransport(response(200, INSTALLATION_FIXTURE))
