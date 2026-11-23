@@ -2,8 +2,9 @@
 
 Aplicativo Android pessoal para acompanhar uma **estimativa** do saldo de uma
 conta exclusiva para C6 Tag, usando notificações reconhecidas do C6.
-Não consulta o saldo no banco, não pede senha, não realiza recargas e não usa
-backend ou internet. Não é um produto oficial do banco.
+Não consulta o saldo no banco, não pede senha, não realiza recargas e não envia
+avisos bancários nem dados financeiros a um servidor. O monitor local continua
+independente de login e de rede. Não é um produto oficial do banco.
 
 **Documentação de trabalho:** `docs/` é mantida apenas localmente e ignorada pelo
 Git. As referências a essa pasta abaixo são locais/históricas; esses arquivos
@@ -40,8 +41,15 @@ Ajustes para uma notificação crítica sintética; isso não implementa comunic
 remota. A opção de tela cheia começa desligada; ativá-la exige consentimento
 explícito e acesso especial concedido separadamente, com fallback de notificação
 comum. O release exclui a sonda. Áudio, visibilidade e duração real não foram
-comprovados em aparelho, e não há garantia de áudio por 30 segundos. Este app
-1.1 continua sem internet, backend, login ou compartilhamento entre aparelhos.
+comprovados em aparelho, e não há garantia de áudio por 30 segundos. A fundação
+de identidade Google/Firebase está incluída, mas não está ligada à interface e
+nenhum fluxo real de login Google foi executado ou é acionado por este app.
+Também não há API de host. A permissão de internet atende à autenticação futura;
+o monitor local não depende dela. Uma identidade Firebase, quando conectada
+futuramente, será apenas candidata e não autoriza por si só um host remoto ou
+compartilhamento entre aparelhos.
+Para preparar a configuração Firebase local necessária ao build, consulte
+[Configuração local do Firebase](#configuração-local-do-firebase).
 Roteiro físico e evidências
 locais: [`docs/testing/critical-alert-probe-checklist.md`](docs/testing/critical-alert-probe-checklist.md)
 e [`docs/testing/remote-mobile-foundation-results.md`](docs/testing/remote-mobile-foundation-results.md).
@@ -79,6 +87,37 @@ Comunicação com outros aparelhos não está implementada nesta versão.
 - Gradle Wrapper 9.1.0. As versões de plugins e bibliotecas estão fixadas em
   `gradle/libs.versions.toml`.
 - Não é necessário instalar Gradle globalmente.
+
+## Configuração local do Firebase
+
+O plugin Google Services precisa do arquivo local `app/google-services.json`
+para gerar os recursos Firebase usados pelo build e pelos testes do app. O clone
+não inclui esse arquivo porque ele é intencionalmente ignorado pelo Git. Antes
+dos comandos Gradle abaixo, prepare uma configuração do projeto Firebase
+`tag-alert-ba5d8` para o registro Android com `applicationId`
+`br.com.tagalert.app`.
+
+Com acesso autorizado, abra o Firebase Console e vá a **Project settings >
+General > Your apps**. Selecione o app Android registrado com esse
+`applicationId`, baixe o `google-services.json` e coloque-o em
+`app/google-services.json`. Se já houver um arquivo local, não o sobrescreva;
+confirme com o responsável pelo projeto. Sem acesso, peça a configuração ao
+responsável. Não crie um JSON fictício nem publique ou compartilhe o conteúdo
+ou as chaves do arquivo. O comando somente de leitura
+`git check-ignore -v app/google-services.json` confirma que ele fica fora do
+versionamento.
+
+O plugin gera `default_web_client_id` a partir da configuração; o
+`GoogleCredentialRequestor` usa esse recurso como web client ID na solicitação
+Google. Esse ID não é o OAuth client Android; não cole tokens manualmente. O
+`google-services.json` é configuração Firebase de cliente, não credencial
+privada de service account/Admin SDK. Nunca inclua JSON de service account nem
+chave privada no app Android.
+
+Isso é somente um pré-requisito do build: o monitor local instalado continua
+utilizável sem login Google e offline. A configuração não conecta a fundação de
+identidade Firebase à interface nem comprova login real ou operação em
+produção; nenhum fluxo real de login foi executado.
 
 ## Comandos no Windows
 
@@ -144,6 +183,9 @@ O APK de depuração, quando o build concluir, fica em
 `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Configuração local
+
+A configuração local do Firebase necessária antes dos comandos Gradle está em
+[Configuração local do Firebase](#configuração-local-do-firebase).
 
 O `applicationId` deste app para instalação é `br.com.tagalert.app`; o namespace
 Android interno continua `br.com.c6tag.diagnostico`. O pacote de origem do C6 tem

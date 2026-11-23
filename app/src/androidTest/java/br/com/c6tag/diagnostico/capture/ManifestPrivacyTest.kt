@@ -23,7 +23,23 @@ class ManifestPrivacyTest {
             PackageManager.GET_PERMISSIONS or PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS,
         )
         val requested = packageInfo.requestedPermissions.orEmpty().toSet()
-        assertFalse("INTERNET must not be requested", "android.permission.INTERNET" in requested)
+        assertTrue("Firebase Auth requires INTERNET", "android.permission.INTERNET" in requested)
+        assertTrue(
+            "network availability is used by the authentication foundation",
+            "android.permission.ACCESS_NETWORK_STATE" in requested,
+        )
+        assertTrue(
+            "Credential Manager's biometric provider declares USE_BIOMETRIC",
+            "android.permission.USE_BIOMETRIC" in requested,
+        )
+        assertTrue(
+            "Credential Manager's biometric provider declares legacy USE_FINGERPRINT",
+            "android.permission.USE_FINGERPRINT" in requested,
+        )
+        assertTrue(
+            "Firebase Auth's reCAPTCHA dependency declares READ_GSERVICES",
+            "com.google.android.providers.gsf.permission.READ_GSERVICES" in requested,
+        )
         assertTrue(
             "the debug-only probe may request full-screen-intent access",
             "android.permission.USE_FULL_SCREEN_INTENT" in requested,
@@ -32,7 +48,7 @@ class ManifestPrivacyTest {
         assertFalse("READ_EXTERNAL_STORAGE must not be requested", "android.permission.READ_EXTERNAL_STORAGE" in requested)
         assertFalse("WRITE_EXTERNAL_STORAGE must not be requested", "android.permission.WRITE_EXTERNAL_STORAGE" in requested)
         assertEquals(
-            "only the documented WorkManager and local-alert permissions may be requested",
+            "only explicitly allowed platform permissions may be requested",
             DOCUMENTED_PLATFORM_PERMISSIONS,
             requested.filter { it.startsWith("android.permission.") }.toSet(),
         )
@@ -159,9 +175,12 @@ class ManifestPrivacyTest {
     private companion object {
         val DOCUMENTED_PLATFORM_PERMISSIONS = setOf(
             "android.permission.POST_NOTIFICATIONS",
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.USE_BIOMETRIC",
+            "android.permission.USE_FINGERPRINT",
             "android.permission.USE_FULL_SCREEN_INTENT",
             "android.permission.WAKE_LOCK",
-            "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.RECEIVE_BOOT_COMPLETED",
             "android.permission.FOREGROUND_SERVICE",
         )

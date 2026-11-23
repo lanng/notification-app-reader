@@ -7,6 +7,7 @@
 /docs/
 **/build/
 local.properties
+/app/google-services.json
 *.iml
 *.apk
 *.aab
