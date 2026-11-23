@@ -14,6 +14,12 @@ import br.com.c6tag.diagnostico.monitor.alerts.LowBalanceScheduler
 import androidx.work.WorkManager
 import br.com.c6tag.diagnostico.monitor.storage.SqliteMonitorStore
 import br.com.c6tag.diagnostico.monitor.alerts.AlertActionReceiver
+import br.com.c6tag.diagnostico.remote.access.FirebaseOwnerIdentity
+import br.com.c6tag.diagnostico.remote.access.HttpsOwnerAccessTransport
+import br.com.c6tag.diagnostico.remote.access.KeystoreRemoteHostSessionStore
+import br.com.c6tag.diagnostico.remote.access.OwnerAccessClient
+import br.com.c6tag.diagnostico.remote.access.OwnerIdentity
+import br.com.c6tag.diagnostico.remote.access.RemoteHostSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -96,5 +102,17 @@ class CollectorApplication : Application() {
             captureStatus = captureStatus,
             scope = applicationScope,
         )
+    }
+
+    internal val ownerIdentity: OwnerIdentity by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        FirebaseOwnerIdentity(applicationContext)
+    }
+
+    internal val ownerAccessClient: OwnerAccessClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OwnerAccessClient(HttpsOwnerAccessTransport(BuildConfig.OWNER_API_ORIGIN))
+    }
+
+    internal val remoteHostSessionStore: RemoteHostSessionStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        KeystoreRemoteHostSessionStore(applicationContext)
     }
 }

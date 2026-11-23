@@ -20,15 +20,22 @@ internal fun MonitorRoot(
     referenceActions: ReferenceActions,
     onEnableNotices: () -> Unit,
     diagnostic: @Composable () -> Unit,
+    onOpenRemoteAccess: () -> Unit = {},
+    remoteAccess: @Composable (onClose: () -> Unit) -> Unit = {},
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var diagnosticVisible by rememberSaveable { mutableStateOf(false) }
+    var remoteAccessVisible by rememberSaveable { mutableStateOf(false) }
     var pendingVisible by rememberSaveable { mutableStateOf(false) }
     var noticeExplanation by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = diagnosticVisible || pendingVisible || state.referenceDraft != null || selected != 0) {
+    BackHandler(
+        enabled = diagnosticVisible || remoteAccessVisible || pendingVisible ||
+            state.referenceDraft != null || selected != 0,
+    ) {
         when {
             state.referenceDraft != null -> referenceActions.onCancel()
             diagnosticVisible -> diagnosticVisible = false
+            remoteAccessVisible -> remoteAccessVisible = false
             pendingVisible && state.pendingSelection?.confirmation != null -> actions.onDismissPendingDecision()
             pendingVisible && state.pendingSelection != null -> actions.onClosePending()
             pendingVisible -> pendingVisible = false
@@ -59,6 +66,9 @@ internal fun MonitorRoot(
                 if (diagnosticVisible) TextButton(onClick = { diagnosticVisible = false }) {
                     Text(stringResource(R.string.monitor_back_settings))
                 }
+                if (remoteAccessVisible) TextButton(onClick = { remoteAccessVisible = false }) {
+                    Text(stringResource(R.string.monitor_back_settings))
+                }
                 if (pendingVisible) TextButton(
                     onClick = {
                         when {
@@ -78,7 +88,7 @@ internal fun MonitorRoot(
             }
         },
         bottomBar = {
-            if (!diagnosticVisible && !pendingVisible && state.financialSelection == null &&
+            if (!diagnosticVisible && !remoteAccessVisible && !pendingVisible && state.financialSelection == null &&
                 state.referenceDraft == null
             ) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 listOf(R.string.monitor_tab_overview, R.string.monitor_tab_history, R.string.monitor_tab_settings).forEachIndexed { index, label ->
@@ -113,10 +123,18 @@ internal fun MonitorRoot(
                     state, referenceActions.copy(onOpenCaptureSettings = actions.onOpenCaptureSettings),
                 )
                 diagnosticVisible -> diagnostic()
+                remoteAccessVisible -> remoteAccess { remoteAccessVisible = false }
                 pendingVisible -> PendingReviewScreen(state, routedActions)
                 selected == 0 -> OverviewScreen(state, routedActions)
                 selected == 1 -> FinancialHistoryScreen(state, routedActions)
-                else -> MonitorSettingsScreen(state, routedActions)
+                else -> MonitorSettingsScreen(
+                    state = state,
+                    actions = routedActions,
+                    onOpenRemoteAccess = {
+                        onOpenRemoteAccess()
+                        remoteAccessVisible = true
+                    },
+                )
             }
         }
     }

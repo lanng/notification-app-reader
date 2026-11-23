@@ -36,20 +36,33 @@ Android, com recursos adaptativos e fallbacks por densidade, sem substituir o
 Fonte, reprodução, prévias e hash em
 [`docs/testing/launcher-artwork-results.md`](docs/testing/launcher-artwork-results.md).
 
-**Fundação remota (somente debug):** há fixtures e uma entrada manual em
-Ajustes para uma notificação crítica sintética; isso não implementa comunicação
-remota. A opção de tela cheia começa desligada; ativá-la exige consentimento
-explícito e acesso especial concedido separadamente, com fallback de notificação
-comum. O release exclui a sonda. Áudio, visibilidade e duração real não foram
-comprovados em aparelho, e não há garantia de áudio por 30 segundos. A fundação
-de identidade Google/Firebase está incluída, mas não está ligada à interface e
-nenhum fluxo real de login Google foi executado ou é acionado por este app.
-Também não há API de host. A permissão de internet atende à autenticação futura;
-o monitor local não depende dela. Uma identidade Firebase, quando conectada
-futuramente, será apenas candidata e não autoriza por si só um host remoto ou
-compartilhamento entre aparelhos.
+**Fundação remota:** há fixtures e uma entrada manual em Ajustes para uma
+notificação crítica sintética; isso não implementa FCM. A opção de tela cheia
+começa desligada; ativá-la exige consentimento explícito e acesso especial
+concedido separadamente, com fallback de notificação comum. O release exclui a
+sonda. Áudio, visibilidade e duração real não foram comprovados em aparelho, e
+não há garantia de áudio por 30 segundos.
+
+A tela **Acesso remoto** em Ajustes liga, por ação explícita, Credential Manager,
+Google/Firebase e os controles de consulta e ativação do host. Abrir o app ou
+usar Visão geral, Histórico e Ajustes não exige login nem depende da rede; isso
+não significa que o SDK Firebase nunca inicialize ou faça seu trabalho normal
+de configuração. Entrar com Google só produz uma identidade candidata. A
+consulta do proprietário é outra ação, e ativar/substituir um host exige uma
+confirmação separada com aviso quando já há outro host. Nenhum fluxo real da UI
+Google, consulta de produção ou ativação ao vivo foi executado. Os testes Compose
+foram apenas compilados; isso não valida a UI real do provedor. Instalação em
+aparelho e ativação ao vivo exigem consentimentos separados.
+
+O acesso remoto usa um serviço HTTPS configurado pelo responsável. Não envia nem
+sincroniza saldo, referências, histórico, capturas ou agendamentos financeiros
+locais; essa fundação não usa FCM. O UID Firebase é somente uma identidade
+candidata: o responsável deve autorizar manualmente o UID correto no servidor.
+Não há cadastro público, regra de primeiro usuário, autorização por e-mail nem
+revogação remota de uma instalação Sanctum oferecida pelo app.
 Para preparar a configuração Firebase local necessária ao build, consulte
 [Configuração local do Firebase](#configuração-local-do-firebase).
+Veja também [Origem e configuração privada do serviço do proprietário](#origem-e-configuração-privada-do-serviço-do-proprietário).
 Roteiro físico e evidências
 locais: [`docs/testing/critical-alert-probe-checklist.md`](docs/testing/critical-alert-probe-checklist.md)
 e [`docs/testing/remote-mobile-foundation-results.md`](docs/testing/remote-mobile-foundation-results.md).
@@ -114,10 +127,35 @@ Google. Esse ID não é o OAuth client Android; não cole tokens manualmente. O
 privada de service account/Admin SDK. Nunca inclua JSON de service account nem
 chave privada no app Android.
 
-Isso é somente um pré-requisito do build: o monitor local instalado continua
-utilizável sem login Google e offline. A configuração não conecta a fundação de
-identidade Firebase à interface nem comprova login real ou operação em
-produção; nenhum fluxo real de login foi executado.
+O arquivo é pré-requisito do build, não prova de autorização do proprietário.
+O monitor local continua utilizável sem login e offline. A UI remota foi ligada
+por controles explícitos, mas não foi validada com uma conta Google real.
+
+## Origem e configuração privada do serviço do proprietário
+
+`OWNER_API_ORIGIN` fica vazia por padrão. Para habilitar consultas remotas, o
+responsável pelo ambiente deve fornecer uma origem HTTPS autorizada no comando
+Gradle, por exemplo `-PownerApiOrigin=https://<origem-autorizada>`. Não adivinhe
+domínio, use IP de produção ou inclua caminho, query, fragmento, usuário,
+senha, token ou outra credencial na URL. Sem uma origem HTTPS válida, a UI
+informa que a API não está configurada e mantém indisponíveis consulta e
+ativação.
+
+A configuração de verificação Firebase do servidor é separada: a verificação
+fica desligada por padrão (`access_pairing.firebase.enabled`) e a credencial
+privada apontada por `access_pairing.firebase.credentials_path`, além de
+`access_pairing.firebase.connect_timeout` e
+`access_pairing.firebase.timeout`, pertence somente ao ambiente do servidor.
+Não copie credenciais privadas para o Android, `google-services.json`, Gradle,
+`local.properties`, logs ou repositório. Um erro de verificação indisponível
+não prova que um UID está ausente ou não autorizado.
+
+Somente após consentimento separado para um futuro login Google real, confira
+o projeto Firebase e o UID exibidos e confirme o UID correto com o responsável
+por um canal privado aprovado. O botão copia apenas o UID — nunca um token. A
+autorização manual no servidor é um checkpoint separado; não autorize o
+primeiro usuário automaticamente. Também são necessários consentimentos
+separados antes de instalar em aparelho ou tentar ativação real de host.
 
 ## Comandos no Windows
 

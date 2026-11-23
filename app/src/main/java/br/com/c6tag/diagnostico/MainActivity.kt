@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.Manifest
 import android.app.NotificationManager
+import android.content.ClipData
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
@@ -13,14 +14,26 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -33,9 +46,14 @@ import br.com.c6tag.diagnostico.ui.DiagnosticViewModel
 import br.com.c6tag.diagnostico.ui.monitor.*
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import br.com.c6tag.diagnostico.monitor.alerts.MonitorNotifier
+import br.com.c6tag.diagnostico.remote.access.GoogleCredentialRequestor
+import br.com.c6tag.diagnostico.remote.access.RemoteAccessViewModel
+import br.com.c6tag.diagnostico.ui.remote.RemoteAccessScreen
 
 class MainActivity : ComponentActivity() {
     private var noticePermissionRequested = false
+    private var remoteCredentialRequestLease: Long? = null
+    private var remoteCredentialRequestJob: Job? = null
     private val noticePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         refreshPlatformState()
     }
@@ -66,6 +84,23 @@ class MainActivity : ComponentActivity() {
                 }
             },
         )[DiagnosticViewModel::class.java]
+    }
+    private val remoteAccessViewModel: RemoteAccessViewModel by lazy(LazyThreadSafetyMode.NONE) {
+        val collectorApplication = application as CollectorApplication
+        ViewModelProvider(
+            this,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    require(modelClass.isAssignableFrom(RemoteAccessViewModel::class.java))
+                    return RemoteAccessViewModel(
+                        identity = collectorApplication.ownerIdentity,
+                        ownerAccessClient = collectorApplication.ownerAccessClient,
+                        sessionStore = collectorApplication.remoteHostSessionStore,
+                    ) as T
+                }
+            },
+        )[RemoteAccessViewModel::class.java]
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -139,8 +174,60 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onOpenRemoteAccess = {},
+                    remoteAccess = { onClose -> RemoteAccessContent(onClose) },
                 )
             }
+        }
+    }
+
+    @Composable
+    private fun RemoteAccessContent(onClose: () -> Unit) {
+        val viewModel = remoteAccessViewModel
+        val leaseState = remember(viewModel) { mutableStateOf<Long?>(null) }
+        val state by viewModel.uiState.collectAsStateWithLifecycle()
+        val clipboard = LocalClipboard.current
+        val clipboardScope = rememberCoroutineScope()
+        androidx.compose.runtime.DisposableEffect(viewModel) {
+            val lease = viewModel.attachSurface()
+            leaseState.value = lease
+            onDispose {
+                viewModel.detachSurface(lease)
+                cancelRemoteCredentialRequest(lease)
+            }
+        }
+        val lease = leaseState.value
+        if (lease == null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            RemoteAccessScreen(
+                state = state,
+                onSignIn = { requestRemoteGoogleCredential(viewModel, lease, reauthenticate = false) },
+                onReauthenticate = {
+                    requestRemoteGoogleCredential(viewModel, lease, reauthenticate = true)
+                },
+                onDiscover = { viewModel.discoverOwnerMonitor(lease) },
+                onConfirmActivation = { confirmationId, replacementWarningConfirmed ->
+                    viewModel.confirmHostActivation(
+                        lease = lease,
+                        confirmationId = confirmationId,
+                        hostReplacementWarningConfirmed = replacementWarningConfirmed,
+                    )
+                },
+                onCancelConfirmation = { viewModel.cancelConfirmation(lease) },
+                onSignOut = { viewModel.signOut(lease) },
+                onCopyUid = { uid ->
+                    clipboardScope.launch {
+                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Firebase UID", uid)))
+                    }
+                },
+                onClose = onClose,
+            )
         }
     }
 
@@ -167,6 +254,42 @@ class MainActivity : ComponentActivity() {
                 },
             ),
         )
+    }
+
+    private fun requestRemoteGoogleCredential(
+        viewModel: RemoteAccessViewModel,
+        lease: Long,
+        reauthenticate: Boolean,
+    ) {
+        if (remoteCredentialRequestJob?.isActive == true) {
+            return
+        }
+        remoteCredentialRequestLease = lease
+        viewModel.googleCredentialRequestStarted(lease)
+        remoteCredentialRequestJob = lifecycleScope.launch {
+            try {
+                val result = GoogleCredentialRequestor(this@MainActivity).request()
+                viewModel.acceptGoogleCredential(lease, result, reauthenticate)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (exception: Exception) {
+                viewModel.googleCredentialRequestFailed(lease)
+                throw exception
+            } finally {
+                if (remoteCredentialRequestLease == lease) {
+                    remoteCredentialRequestLease = null
+                    remoteCredentialRequestJob = null
+                }
+            }
+        }
+    }
+
+    private fun cancelRemoteCredentialRequest(lease: Long) {
+        if (remoteCredentialRequestLease == lease) {
+            remoteCredentialRequestJob?.cancel()
+            remoteCredentialRequestJob = null
+            remoteCredentialRequestLease = null
+        }
     }
 
     override fun onResume() {

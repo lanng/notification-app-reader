@@ -23,7 +23,11 @@ import br.com.c6tag.diagnostico.monitor.ThemePreference
 import br.com.c6tag.diagnostico.remote.probe.DebugAlertProbeEntry
 
 @Composable
-internal fun MonitorSettingsScreen(state: MonitorUiState, actions: MonitorActions) {
+internal fun MonitorSettingsScreen(
+    state: MonitorUiState,
+    actions: MonitorActions,
+    onOpenRemoteAccess: () -> Unit = {},
+) {
     val draft = state.settingsDraft ?: MonitorSettingsDraft(
         limit = brlEditable(state.overview.settings.limitCents),
         repeatMinutes = state.overview.settings.alerts.repeatMinutes,
@@ -36,6 +40,14 @@ internal fun MonitorSettingsScreen(state: MonitorUiState, actions: MonitorAction
     ) {
         item { Text(stringResource(R.string.monitor_tab_settings), style = MaterialTheme.typography.headlineSmall) }
         item { TextButton(onClick = actions.onDiagnostic) { Text(stringResource(R.string.monitor_diagnostic)) } }
+        item {
+            TextButton(
+                onClick = onOpenRemoteAccess,
+                modifier = Modifier.testTag("open-remote-access"),
+            ) {
+                Text(stringResource(R.string.remote_settings_entry))
+            }
+        }
         item {
             Column {
                 Text(stringResource(R.string.monitor_appearance), style = MaterialTheme.typography.titleMedium)
