@@ -14,6 +14,7 @@ firebase-bom = "34.12.0"
 credentials = "1.6.0"
 googleid = "1.2.0"
 fragment = "1.5.7"
+gson = "2.13.2"
 
 [libraries]
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
@@ -37,6 +38,7 @@ androidx-credentials = { module = "androidx.credentials:credentials", version.re
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleid" }
 androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
+gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

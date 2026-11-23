@@ -23,6 +23,8 @@ val c6PackageName = gradle.startParameter.projectProperties["c6PackageName"]
         }
     ?: ""
 
+val ownerApiOrigin = gradle.startParameter.projectProperties["ownerApiOrigin"] ?: ""
+
 fun String.asJavaStringLiteral(): String = buildString {
     append('"')
     for (character in this@asJavaStringLiteral) {
@@ -58,6 +60,7 @@ android {
         versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "C6_PACKAGE_NAME", c6PackageName.asJavaStringLiteral())
+        buildConfigField("String", "OWNER_API_ORIGIN", ownerApiOrigin.asJavaStringLiteral())
     }
 
     buildFeatures {
@@ -93,6 +96,7 @@ dependencies {
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
     implementation(libs.androidx.fragment)
+    implementation(libs.gson)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
