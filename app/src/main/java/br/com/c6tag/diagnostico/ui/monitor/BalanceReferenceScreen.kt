@@ -77,7 +77,7 @@ internal fun BalanceReferenceScreen(state: MonitorUiState, actions: ReferenceAct
                 onClick = actions.onReview, enabled = !state.isBusy && !draft.sessionUnavailable,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.monitor_reference_review)) }
-            TextButton(onClick = actions.onCancel, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = actions.onCancel, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.monitor_reference_cancel))
             }
         }

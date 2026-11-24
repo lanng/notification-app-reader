@@ -3,6 +3,9 @@ package br.com.c6tag.diagnostico.ui.monitor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -98,15 +101,28 @@ class MonitorNavigationTest {
     }
 
     @Test fun settingsExposeOnlySupportedReminderIntervalsAndSeparatePlatformLinks() {
+        var noticeSettingsOpens = 0
+        var density = 1f
         compose.setContent {
+            density = LocalDensity.current.density
             MonitorTheme {
                 MonitorRoot(
                     MonitorUiState(isLoading = false, notices = NoticeAccess.SILENT),
-                    MonitorActions(), ReferenceActions(), onEnableNotices = {}, diagnostic = {},
+                    MonitorActions(onOpenNoticeSettings = { noticeSettingsOpens++ }),
+                    ReferenceActions(), onEnableNotices = {}, diagnostic = {},
                 )
             }
         }
         compose.onNodeWithTag("tab-settings").performClick()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-monitor-access"))
+        compose.onNodeWithText("Monitor e acesso").assertIsDisplayed()
+        compose.onNodeWithTag("open-remote-access").assertIsDisplayed()
+        compose.onNodeWithTag("settings-reference").assertIsDisplayed()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-appearance"))
+        compose.onNodeWithText("Aparência").assertIsDisplayed()
+        compose.onNodeWithTag("theme-system").assertIsDisplayed()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-local-alerts"))
+        compose.onNodeWithText("Alertas locais").assertIsDisplayed()
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-limit"))
         compose.onNodeWithTag("settings-limit").assertIsDisplayed()
         compose.onNodeWithTag("repeat-15").assertIsDisplayed()
@@ -118,9 +134,22 @@ class MonitorNavigationTest {
         compose.onNodeWithTag("pause-60").assertExists()
         compose.onNodeWithTag("pause-120").assertIsDisplayed()
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Abrir ajustes de avisos e som"))
-        compose.onNodeWithText("Abrir ajustes de avisos e som").assertExists()
+        val noticeSettingsAction = compose.onNodeWithTag("settings-notice-settings")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assertIsEnabled()
+            .assertHasClickAction()
+        val targetHeight = noticeSettingsAction.fetchSemanticsNode().touchBoundsInRoot.height
+        assertTrue(
+            "Avisos settings target=$targetHeight px, minimum=${48f * density} px",
+            targetHeight + 0.001f >= 48f * density,
+        )
+        noticeSettingsAction.performClick()
+        assertEquals(1, noticeSettingsOpens)
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Autorizar captura"))
         compose.onNodeWithText("Autorizar captura").assertExists()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-permissions"))
+        compose.onNodeWithText("Permissões e diagnóstico").assertIsDisplayed()
+        compose.onNodeWithText("Histórico financeiro").assertDoesNotExist()
     }
 
     @Test fun financialHistoryDetailReturnsToItsFilteredList() {

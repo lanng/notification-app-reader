@@ -335,7 +335,14 @@ class RemoteAccessScreenTest {
         compose.onNodeWithText("Acesso remoto").performClick()
         compose.onNodeWithText("Acesso remoto do host").assertIsDisplayed()
         compose.onNodeWithTag("remote-sign-in").assertIsDisplayed()
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(1)
 
+        assertEquals(1, remoteOpens)
+        assertEquals(0, networkActions)
+
+        compose.onNodeWithTag("remote-back-settings").assertHasClickAction().performClick()
+        compose.onNodeWithText("Monitor e acesso").assertIsDisplayed()
+        compose.onNodeWithTag("tab-settings").assertIsSelected()
         assertEquals(1, remoteOpens)
         assertEquals(0, networkActions)
     }

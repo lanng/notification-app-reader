@@ -86,7 +86,7 @@ internal fun RemoteAccessScreen(
             .testTag("remote-access-scroll"),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        TextButton(
+        OutlinedButton(
             onClick = onClose,
             modifier = Modifier.testTag("remote-back-settings"),
         ) {

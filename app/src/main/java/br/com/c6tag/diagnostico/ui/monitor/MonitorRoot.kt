@@ -66,9 +66,6 @@ internal fun MonitorRoot(
                 if (diagnosticVisible) TextButton(onClick = { diagnosticVisible = false }) {
                     Text(stringResource(R.string.monitor_back_settings))
                 }
-                if (remoteAccessVisible) TextButton(onClick = { remoteAccessVisible = false }) {
-                    Text(stringResource(R.string.monitor_back_settings))
-                }
                 if (pendingVisible) TextButton(
                     onClick = {
                         when {

@@ -48,6 +48,7 @@ class MonitorFinalLayoutTest {
     @Test
     fun settingsRemainOperableAtDoubleFontScaleInPortraitAndLandscapeConstraints() {
         val size = mutableStateOf(DpSize(390.dp, 844.dp))
+        val theme = mutableStateOf(ThemePreference.LIGHT)
         var repeat = 0
         var pause = 0
         var saves = 0
@@ -58,7 +59,7 @@ class MonitorFinalLayoutTest {
             ) {
                 val density = LocalDensity.current.density
                 SideEffect { contentDensity = density }
-                MonitorTheme(ThemePreference.DARK) {
+                MonitorTheme(theme.value) {
                     MonitorRoot(
                         fixture(), MonitorActions(
                             onSettingsRepeat = { repeat = it },
@@ -70,21 +71,31 @@ class MonitorFinalLayoutTest {
             }
         }
         compose.onNodeWithTag("tab-settings").performClick()
-        for (dimensions in listOf(DpSize(390.dp, 844.dp), DpSize(740.dp, 360.dp))) {
-            compose.runOnIdle { size.value = dimensions }
-            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("repeat-60"))
-            assertMinimumTarget("repeat-60", contentDensity)
-            compose.onNodeWithTag("repeat-60").performClick()
-            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("pause-120"))
-            assertMinimumTarget("pause-120", contentDensity)
-            compose.onNodeWithTag("pause-120").performClick()
-            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("save-settings"))
-            assertMinimumTarget("save-settings", contentDensity)
-            compose.onNodeWithTag("save-settings").performClick()
-            assertEquals(60, repeat)
-            assertEquals(120, pause)
+        for (preference in listOf(ThemePreference.LIGHT, ThemePreference.DARK)) {
+            compose.runOnIdle { theme.value = preference }
+            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-monitor-access"))
+            assertMinimumTarget("open-remote-access", contentDensity)
+            assertMinimumTarget("settings-reference", contentDensity)
+            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-appearance"))
+            assertMinimumTarget("theme-system", contentDensity)
+            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-local-alerts"))
+            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-limit"))
+            for (dimensions in listOf(DpSize(390.dp, 844.dp), DpSize(740.dp, 360.dp))) {
+                compose.runOnIdle { size.value = dimensions }
+                compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("repeat-60"))
+                assertMinimumTarget("repeat-60", contentDensity)
+                compose.onNodeWithTag("repeat-60").performClick()
+                compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("pause-120"))
+                assertMinimumTarget("pause-120", contentDensity)
+                compose.onNodeWithTag("pause-120").performClick()
+                compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("save-settings"))
+                assertMinimumTarget("save-settings", contentDensity)
+                compose.onNodeWithTag("save-settings").performClick()
+                assertEquals(60, repeat)
+                assertEquals(120, pause)
+            }
         }
-        assertEquals(2, saves)
+        assertEquals(4, saves)
     }
 
     private fun assertMinimumTarget(tag: String, density: Float) {

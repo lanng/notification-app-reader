@@ -56,6 +56,9 @@
     <string name="monitor_pending_ignore_message">A observação será marcada como não contada e não alterará o saldo estimado.</string>
     <string name="monitor_back_history">Voltar ao histórico</string>
     <string name="monitor_appearance">Aparência</string>
+    <string name="monitor_settings_group_access">Monitor e acesso</string>
+    <string name="monitor_settings_group_alerts">Alertas locais</string>
+    <string name="monitor_settings_group_permissions">Permissões e diagnóstico</string>
     <string name="monitor_theme_system">Acompanhar sistema</string>
     <string name="monitor_theme_light">Claro</string>
     <string name="monitor_theme_dark">Escuro</string>
