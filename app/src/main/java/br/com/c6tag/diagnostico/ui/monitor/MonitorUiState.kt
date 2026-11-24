@@ -48,6 +48,7 @@ internal data class MonitorSettingsDraft(
     val repeatMinutes: Int,
     val pauseMinutes: Int,
     val invalid: Boolean = false,
+    val moneyInputError: Boolean = false,
 )
 
 internal data class BalanceDraft(
@@ -56,6 +57,8 @@ internal data class BalanceDraft(
     val limit: String = "300,00",
     val confirmationVisible: Boolean = false,
     val invalidInput: Boolean = false,
+    val balanceInputError: Boolean = false,
+    val limitInputError: Boolean = false,
     val sessionUnavailable: Boolean = false,
 )
 
@@ -83,7 +86,7 @@ internal data class MonitorActions(
     val onRequestPendingDecision: (PendingChoice) -> Unit = {},
     val onDismissPendingDecision: () -> Unit = {},
     val onConfirmPendingDecision: () -> Unit = {},
-    val onSettingsLimit: (String) -> Unit = {},
+    val onSettingsLimit: (BrlMoneyInputChange) -> Unit = {},
     val onSettingsRepeat: (Int) -> Unit = {},
     val onSettingsPause: (Int) -> Unit = {},
     val onSaveSettings: () -> Unit = {},
@@ -92,8 +95,8 @@ internal data class MonitorActions(
 )
 
 internal data class ReferenceActions(
-    val onBalance: (String) -> Unit = {},
-    val onLimit: (String) -> Unit = {},
+    val onBalance: (BrlMoneyInputChange) -> Unit = {},
+    val onLimit: (BrlMoneyInputChange) -> Unit = {},
     val onReview: () -> Unit = {},
     val onDismissConfirmation: () -> Unit = {},
     val onConfirm: () -> Unit = {},

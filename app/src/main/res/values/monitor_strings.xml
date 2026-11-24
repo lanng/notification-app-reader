@@ -62,7 +62,7 @@
     <string name="monitor_diagnostic">Diagnóstico técnico</string>
     <string name="monitor_back_settings">Voltar aos ajustes</string>
     <string name="monitor_settings_limit">Limite de atenção (R$)</string>
-    <string name="monitor_settings_limit_help">Use vírgula para centavos. O limite não pode ser negativo.</string>
+    <string name="monitor_settings_limit_help">Digite os algarismos; os centavos são ajustados automaticamente. O limite não pode ser negativo.</string>
     <string name="monitor_settings_invalid">Informe um limite válido em reais sem arredondamento.</string>
     <string name="monitor_settings_repeat">Repetir lembrete a cada</string>
     <string name="monitor_settings_pause">Pausar lembretes por</string>
@@ -78,7 +78,7 @@
     <string name="monitor_reference_explanation">Consulte o saldo atual no C6. Este valor substituirá a estimativa; não é uma recarga. Não precisamos de senha nem acesso à sua conta.</string>
     <string name="monitor_reference_balance_input">Saldo atual no C6 (R$)</string>
     <string name="monitor_reference_limit_input">Limite de atenção (R$)</string>
-    <string name="monitor_reference_money_help">Use vírgula para centavos. Saldo negativo é permitido.</string>
+    <string name="monitor_reference_money_help">Digite os algarismos; os centavos são ajustados automaticamente. Saldos negativos já registrados são preservados.</string>
     <string name="monitor_reference_boundary">Conferência aberta em %1$s; válida por 15 minutos.</string>
     <string name="monitor_reference_concurrent">Novos avisos durante a conferência continuarão pendentes, sem impacto automático.</string>
     <plurals name="monitor_reference_pending">

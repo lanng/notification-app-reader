@@ -8,6 +8,7 @@
     <string name="app_name">Tag Alert</string>
     <string name="diagnostic_title">C6 Tag Diagnóstico</string>
     <string name="diagnostic_no_balance">Diagnóstico: não calcula saldo</string>
+    <string name="monitor_money_input_invalid">Não foi possível aplicar esse valor. Corrija os algarismos; o último valor válido foi mantido.</string>
     <string name="estimate_warning">A estimativa futura depende das notificações recebidas e pode estar incompleta.</string>
     <string name="capture_may_be_incomplete">A captura pode estar incompleta; esta tela não confirma movimentos financeiros.</string>
     <string name="target_not_configured">Origem C6 não configurada: captura desativada</string>

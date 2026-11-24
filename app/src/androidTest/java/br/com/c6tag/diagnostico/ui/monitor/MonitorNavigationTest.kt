@@ -17,7 +17,7 @@ import org.junit.Test
 class MonitorNavigationTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun balanceEditorRequestsAnInputTypeThatAllowsTypingANegativeAmount() {
+    @Test fun balanceEditorRequestsUnsignedNumericInputAndInterpretsDigitsAsCents() {
         val ui = mutableStateOf(MonitorUiState(
             referenceDraft = BalanceDraft(ReferenceSession("signed-input", 1L, 0L, null)),
             isLoading = false,
@@ -27,7 +27,9 @@ class MonitorNavigationTest {
             host = LocalView.current
             MonitorTheme {
                 BalanceReferenceScreen(ui.value, ReferenceActions(
-                    onBalance = { value -> ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = value)) },
+                    onBalance = { change ->
+                        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = change.canonicalText))
+                    },
                 ))
             }
         }
@@ -36,12 +38,11 @@ class MonitorNavigationTest {
             val info = EditorInfo()
             assertNotNull(host!!.onCreateInputConnection(info))
             val inputClass = info.inputType and InputType.TYPE_MASK_CLASS
-            assertTrue("The IME must allow a minus sign, not unsigned numeric-only input",
-                inputClass == InputType.TYPE_CLASS_TEXT ||
-                    (inputClass == InputType.TYPE_CLASS_NUMBER && info.inputType and InputType.TYPE_NUMBER_FLAG_SIGNED != 0))
+            assertEquals(InputType.TYPE_CLASS_NUMBER, inputClass)
+            assertEquals(0, info.inputType and InputType.TYPE_NUMBER_FLAG_SIGNED)
         }
-        compose.onNodeWithTag("reference-balance").performTextInput("-20,25")
-        assertEquals(-2_025L, parseBrlInput(ui.value.referenceDraft!!.balance))
+        compose.onNodeWithTag("reference-balance").performTextInput("2025")
+        assertEquals(2_025L, parseBrlInput(ui.value.referenceDraft!!.balance))
     }
 
     @Test fun formCanOpenCaptureSettingsWithoutDiscardingReferenceSession() {
@@ -187,13 +188,27 @@ class MonitorNavigationTest {
         compose.setContent {
             MonitorTheme {
                 BalanceReferenceScreen(ui.value, ReferenceActions(
-                    onBalance = { value -> ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = value)) },
-                    onLimit = { value -> ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limit = value)) },
+                    onBalance = { change ->
+                        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = change.canonicalText))
+                    },
+                    onLimit = { change ->
+                        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limit = change.canonicalText))
+                    },
                     onReview = { ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(confirmationVisible = true)) },
                     onConfirm = { commits++ }, onCancel = { cancels++ },
                 ))
             }
         }
+        val limitHelp = "Digite os algarismos; os centavos são ajustados automaticamente. O limite não pode ser negativo."
+        val invalidMoneyHelp = "Não foi possível aplicar esse valor. Corrija os algarismos; o último valor válido foi mantido."
+        compose.onNodeWithTag("reference-scroll").performScrollToNode(hasText(limitHelp))
+        compose.onNodeWithText(limitHelp).assertIsDisplayed()
+        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limitInputError = true))
+        compose.onNodeWithTag("reference-scroll").performScrollToNode(hasText(invalidMoneyHelp))
+        compose.onNodeWithText(invalidMoneyHelp).assertIsDisplayed()
+        compose.onNodeWithText(limitHelp).assertDoesNotExist()
+        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limitInputError = false))
+        compose.onNodeWithTag("reference-scroll").performScrollToNode(hasTestTag("reference-balance"))
         compose.onNodeWithTag("reference-balance").performTextInput("500,00")
         compose.onNodeWithTag("reference-limit").performTextReplacement("300,00")
         assertEquals("500,00", ui.value.referenceDraft!!.balance)

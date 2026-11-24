@@ -90,15 +90,31 @@ internal class MonitorViewModel(
         result
     }
 
-    fun updateBalance(value: String) = edit { it.copy(balance = value) }
-    fun updateLimit(value: String) = edit { it.copy(limit = value) }
+    fun updateBalance(change: BrlMoneyInputChange) = edit {
+        if (change.invalid) {
+            it.copy(balanceInputError = true)
+        } else {
+            it.copy(balance = change.canonicalText, balanceInputError = false)
+        }
+    }
+
+    fun updateLimit(change: BrlMoneyInputChange) = edit {
+        if (change.invalid) {
+            it.copy(limitInputError = true)
+        } else {
+            it.copy(limit = change.canonicalText, limitInputError = false)
+        }
+    }
 
     fun reviewReference() {
         if (mutableUiState.value.isBusy) return
         mutableUiState.update { state ->
             val draft = state.referenceDraft ?: return@update state
             if (draft.sessionUnavailable) return@update state
-            val invalid = parseBrlInput(draft.balance) == null || (parseBrlInput(draft.limit)?.let { it < 0L } != false)
+            val balance = parseBrlInput(draft.balance)
+            val limit = parseBrlInput(draft.limit)
+            val invalid = draft.balanceInputError || draft.limitInputError ||
+                balance == null || (limit?.let { it < 0L } != false)
             state.copy(referenceDraft = draft.copy(invalidInput = invalid, confirmationVisible = !invalid))
         }
     }
@@ -111,6 +127,17 @@ internal class MonitorViewModel(
 
     fun confirmReference() {
         val draft = mutableUiState.value.referenceDraft ?: return
+        if (draft.balanceInputError || draft.limitInputError) {
+            mutableUiState.update { state ->
+                val currentDraft = state.referenceDraft ?: return@update state
+                if (currentDraft.session.id != draft.session.id) return@update state
+                state.copy(referenceDraft = currentDraft.copy(
+                    confirmationVisible = false,
+                    invalidInput = true,
+                ))
+            }
+            return
+        }
         if (!draft.confirmationVisible || draft.sessionUnavailable) return
         val balance = parseBrlInput(draft.balance) ?: return
         val limit = parseBrlInput(draft.limit)?.takeIf { it >= 0L } ?: return
@@ -267,7 +294,17 @@ internal class MonitorViewModel(
         }
     }
 
-    fun editSettingsLimit(value: String) = editSettings { it.copy(limit = value, invalid = false) }
+    fun editSettingsLimit(change: BrlMoneyInputChange) = editSettings {
+        if (change.invalid) {
+            it.copy(moneyInputError = true)
+        } else {
+            it.copy(
+                limit = change.canonicalText,
+                invalid = false,
+                moneyInputError = false,
+            )
+        }
+    }
 
     fun editSettingsRepeat(minutes: Int) {
         if (minutes !in SUPPORTED_REPEAT_MINUTES || mutableUiState.value.isBusy) return
@@ -282,6 +319,7 @@ internal class MonitorViewModel(
     fun saveSettings() {
         if (mutableUiState.value.isBusy) return
         val draft = mutableUiState.value.settingsDraft ?: settingsDraft(mutableUiState.value.overview.settings)
+        if (draft.moneyInputError) return
         val limit = parseBrlInput(draft.limit)
         if (limit == null || limit < 0L || draft.repeatMinutes !in SUPPORTED_REPEAT_MINUTES ||
             draft.pauseMinutes !in SUPPORTED_PAUSE_MINUTES

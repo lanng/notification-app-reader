@@ -5,11 +5,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -34,7 +34,7 @@ internal fun MonitorSettingsScreen(
         pauseMinutes = state.overview.settings.alerts.pauseMinutes,
     )
     LazyColumn(
-        modifier = Modifier.fillMaxSize().testTag("settings-scroll"),
+        modifier = Modifier.fillMaxSize().imePadding().testTag("settings-scroll"),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -71,14 +71,18 @@ internal fun MonitorSettingsScreen(
             }
         }
         item {
-            OutlinedTextField(
+            BrlMoneyField(
                 value = draft.limit,
                 onValueChange = actions.onSettingsLimit,
                 label = { Text(stringResource(R.string.monitor_settings_limit)) },
-                supportingText = { Text(stringResource(R.string.monitor_settings_limit_help)) },
-                isError = draft.invalid,
+                supportingText = {
+                    Text(stringResource(
+                        if (draft.moneyInputError) R.string.monitor_money_input_invalid
+                        else R.string.monitor_settings_limit_help,
+                    ))
+                },
+                isError = draft.invalid || draft.moneyInputError,
                 enabled = !state.isBusy,
-                singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("settings-limit"),
             )
             if (draft.invalid) Text(stringResource(R.string.monitor_settings_invalid), color = MaterialTheme.colorScheme.error)
