@@ -194,6 +194,13 @@ class RemoteAccessScreenTest {
         }
 
         compose.onNodeWithText("Ativar ou substituir host").performClick()
+        compose.onNodeWithText(
+            "Confirmo a substituição do host por este aparelho. O servidor encerrará o acesso do host anterior, cancelará convites e pedidos pendentes e manterá os acessos de suporte já aprovados. A credencial salva no outro aparelho não será apagada, mas deixará de ser aceita pelo servidor.",
+        ).assertIsDisplayed()
+        compose.onNodeWithText(
+            "isso não revoga credenciais antigas fora deste app",
+            substring = true,
+        ).assertDoesNotExist()
         compose.onNodeWithTag("activation-confirm").assertIsNotEnabled()
         compose.onNodeWithTag("host-replacement-warning").assertIsDisplayed().performClick()
         compose.onNodeWithTag("activation-confirm").assertIsEnabled().performClick()

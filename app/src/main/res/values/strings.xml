@@ -142,7 +142,7 @@
     <string name="remote_no_financial_sync">Esta etapa não envia, sincroniza ou altera saldos, referências, histórico, capturas ou agendamentos financeiros locais. Não há FCM neste fluxo.</string>
     <string name="remote_activation_confirmation_title">Confirmar ativação explícita?</string>
     <string name="remote_activation_confirmation_details">Projeto Firebase: %1$s\nUID candidato: %2$s\nGeração consultada: %3$s\nServiço HTTPS: %4$s\n\nA conta ainda não é um host ativo. A ativação só será enviada após esta confirmação; o servidor exige uma referência, sem alterar sua referência local.</string>
-    <string name="remote_host_replacement_warning">Já existe outro host. Confirmo que desejo substituí-lo por este aparelho; isso não revoga credenciais antigas fora deste app.</string>
+    <string name="remote_host_replacement_warning">Confirmo a substituição do host por este aparelho. O servidor encerrará o acesso do host anterior, cancelará convites e pedidos pendentes e manterá os acessos de suporte já aprovados. A credencial salva no outro aparelho não será apagada, mas deixará de ser aceita pelo servidor.</string>
     <string name="remote_google_cancelled">A seleção da conta Google foi cancelada. Nenhuma consulta ou ativação foi enviada.</string>
     <string name="remote_google_unavailable">Não foi possível obter uma credencial Google. Nenhuma consulta ou ativação foi enviada.</string>
     <string name="remote_sign_in_failed">Não foi possível iniciar a sessão do app. Tente novamente explicitamente.</string>
