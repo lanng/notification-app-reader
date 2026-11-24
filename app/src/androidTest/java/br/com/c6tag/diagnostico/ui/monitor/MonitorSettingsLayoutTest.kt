@@ -25,6 +25,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.unit.dp
+import br.com.c6tag.diagnostico.BuildConfig
 import br.com.c6tag.diagnostico.monitor.MonitorOverview
 import br.com.c6tag.diagnostico.monitor.MonitorSettings
 import br.com.c6tag.diagnostico.monitor.ThemePreference
@@ -128,6 +129,15 @@ class MonitorSettingsLayoutTest {
         assertMinimumTarget("settings-notice-settings", density)
         compose.onNodeWithTag("settings-notice-settings").performClick()
         assertEquals(1, noticeSettingsOpens)
+        if (BuildConfig.DEBUG) {
+            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("probe-open"))
+            compose.onNodeWithTag("probe-open")
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+                .assert(hasText("Testar alerta crítico (debug)"))
+                .assertIsEnabled()
+                .assertHasClickAction()
+            assertMinimumTarget("probe-open", density)
+        }
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Diagnóstico técnico"))
         compose.onNodeWithText("Diagnóstico técnico").assertIsDisplayed()
         compose.onNodeWithText("Histórico financeiro").assertDoesNotExist()

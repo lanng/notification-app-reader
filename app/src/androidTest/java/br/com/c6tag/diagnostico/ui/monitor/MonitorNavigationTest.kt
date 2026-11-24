@@ -12,6 +12,7 @@ import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import br.com.c6tag.diagnostico.monitor.*
+import br.com.c6tag.diagnostico.ui.AuthorizationStatus
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -50,19 +51,38 @@ class MonitorNavigationTest {
 
     @Test fun formCanOpenCaptureSettingsWithoutDiscardingReferenceSession() {
         var captureRequests = 0
+        var density = 1f
+        val ui = mutableStateOf(
+            MonitorUiState(
+                isLoading = false,
+                authorization = AuthorizationStatus.NOT_AUTHORIZED,
+                referenceDraft = BalanceDraft(ReferenceSession("session", 1L, 0L, null)),
+            ),
+        )
         compose.setContent {
+            density = LocalDensity.current.density
             MonitorTheme {
                 MonitorRoot(
-                    MonitorUiState(
-                        isLoading = false, referenceDraft = BalanceDraft(ReferenceSession("session", 1L, 0L, null)),
-                    ), MonitorActions(onOpenCaptureSettings = { captureRequests++ }),
+                    ui.value,
+                    MonitorActions(onOpenCaptureSettings = { captureRequests++ }),
                     ReferenceActions(), onEnableNotices = {}, diagnostic = {},
                 )
             }
         }
         compose.onNodeWithTag("reference-scroll").performScrollToNode(hasText("Autorizar captura"))
-        compose.onNodeWithText("Autorizar captura").performClick()
+        val authorizeCapture = compose.onNodeWithText("Autorizar captura")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assertIsEnabled()
+            .assertHasClickAction()
+        val targetHeight = authorizeCapture.fetchSemanticsNode().touchBoundsInRoot.height
+        assertTrue(
+            "Capture settings target=$targetHeight px, minimum=${48f * density} px",
+            targetHeight + 0.001f >= 48f * density,
+        )
+        authorizeCapture.performClick()
         assertEquals(1, captureRequests)
+        ui.value = ui.value.copy(authorization = AuthorizationStatus.AUTHORIZED)
+        compose.onNodeWithText("Autorizar captura").assertDoesNotExist()
     }
 
     @Test fun tabsKeepDiagnosticUnderSettingsAndNeverRequestPermissionOnLaunch() {

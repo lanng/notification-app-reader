@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
@@ -148,7 +149,17 @@ internal fun MonitorCaptureStatus(state: MonitorUiState, actions: MonitorActions
         CaptureConnectionState.UNKNOWN -> R.string.connection_unknown
     }), style = MaterialTheme.typography.bodySmall)
     if (state.authorization != AuthorizationStatus.AUTHORIZED) {
-        TextButton(onClick = actions.onOpenCaptureSettings) { Text(stringResource(R.string.monitor_capture_authorize)) }
+        OutlinedButton(
+            onClick = actions.onOpenCaptureSettings,
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Text(
+                stringResource(R.string.monitor_capture_authorize),
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Start,
+            )
+        }
     }
 }
 
