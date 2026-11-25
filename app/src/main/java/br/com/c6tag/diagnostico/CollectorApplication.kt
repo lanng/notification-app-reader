@@ -16,12 +16,15 @@ import br.com.c6tag.diagnostico.monitor.storage.SqliteMonitorStore
 import br.com.c6tag.diagnostico.monitor.alerts.AlertActionReceiver
 import br.com.c6tag.diagnostico.remote.access.FirebaseOwnerIdentity
 import br.com.c6tag.diagnostico.remote.access.HttpsOwnerAccessTransport
+import br.com.c6tag.diagnostico.remote.access.HttpsPairingAccessTransport
 import br.com.c6tag.diagnostico.remote.access.KeystoreRemoteHostSessionStore
+import br.com.c6tag.diagnostico.remote.access.KeystoreRemoteSupportSessionStore
 import br.com.c6tag.diagnostico.remote.access.OwnerAccessClient
 import br.com.c6tag.diagnostico.remote.access.OwnerIdentity
-import br.com.c6tag.diagnostico.remote.access.KeystoreRemoteSupportSessionStore
-import br.com.c6tag.diagnostico.remote.access.RemoteRoleGuard
+import br.com.c6tag.diagnostico.remote.access.PairingAccessClient
 import br.com.c6tag.diagnostico.remote.access.RemoteHostSessionStore
+import br.com.c6tag.diagnostico.remote.access.RemoteRoleGuard
+import br.com.c6tag.diagnostico.remote.access.RemoteSupportSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,8 +121,12 @@ class CollectorApplication : Application() {
         KeystoreRemoteHostSessionStore(applicationContext)
     }
 
-    private val remoteSupportSessionStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    internal val remoteSupportSessionStore: RemoteSupportSessionStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         KeystoreRemoteSupportSessionStore(applicationContext)
+    }
+
+    internal val pairingAccessClient: PairingAccessClient by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        PairingAccessClient(HttpsPairingAccessTransport(BuildConfig.OWNER_API_ORIGIN))
     }
 
     internal val remoteRoleGuard: RemoteRoleGuard by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {

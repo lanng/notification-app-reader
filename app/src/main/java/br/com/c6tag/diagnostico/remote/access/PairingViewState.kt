@@ -1,5 +1,14 @@
 package br.com.c6tag.diagnostico.remote.access
 
+internal enum class RemoteAccessRoleMode {
+    CHECKING,
+    UNASSIGNED,
+    HOST_PRESENT,
+    SUPPORT_PRESENT,
+    DUAL_ROLE_CONFLICT,
+    STORAGE_UNAVAILABLE,
+}
+
 internal enum class SupportPairingPhase {
     EMPTY,
     REDEEMING,
