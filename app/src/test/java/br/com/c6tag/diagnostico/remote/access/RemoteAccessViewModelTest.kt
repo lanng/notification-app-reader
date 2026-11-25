@@ -1211,6 +1211,136 @@ class RemoteAccessViewModelTest {
             }
         }
 
+    @Test
+    fun openSupportPairingAfterAttach401PreservesCredentialLostWithoutExtraNetworkCalls() =
+        runBlocking {
+            val fixture = Fixture(initialAccount = null)
+            try {
+                fixture.seedPendingSupport()
+                fixture.pairingTransport.handler = { operation, _, _ ->
+                    when (operation) {
+                        PairingAccessOperation.CurrentRequest ->
+                            pairingResponse(
+                                401,
+                                """{"code":"access_unauthenticated","message":"Unauthorized"}""",
+                            )
+
+                        PairingAccessOperation.RedeemInvitation ->
+                            pairingResponse(201, redemptionJson())
+
+                        else -> error("Unexpected operation: $operation")
+                    }
+                }
+
+                val lease = fixture.viewModel.attachSurface()
+                val afterAttach = fixture.awaitState {
+                    it.roleMode == RemoteAccessRoleMode.UNASSIGNED &&
+                        it.support.phase == SupportPairingPhase.CREDENTIAL_LOST
+                }
+
+                assertEquals(SupportPairingPhase.CREDENTIAL_LOST, afterAttach.support.phase)
+                assertEquals(RemoteAccessRoleMode.UNASSIGNED, afterAttach.roleMode)
+                assertTrue(afterAttach.canEnterSupportFlow)
+                assertEquals(1, fixture.pairingTransport.totalCalls)
+                assertEquals(RemoteSessionPresence.Absent, fixture.supportStore.presence())
+                val loadCallsBeforeOpen = fixture.supportStore.loadCalls
+
+                fixture.viewModel.openSupportPairing(lease)
+
+                val afterOpen = fixture.viewModel.uiState.value
+                assertEquals(SupportPairingPhase.CREDENTIAL_LOST, afterOpen.support.phase)
+                assertEquals(RemoteAccessRoleMode.UNASSIGNED, afterOpen.roleMode)
+                assertFalse(afterOpen.supportActionInProgress)
+                assertEquals(1, fixture.pairingTransport.totalCalls)
+                assertEquals(loadCallsBeforeOpen, fixture.supportStore.loadCalls)
+
+                // Explicit submission from CREDENTIAL_LOST MUST still work normally.
+                fixture.viewModel.submitSupportInvitation(
+                    lease = lease,
+                    invitationSecret = VALID_INVITATION_SECRET,
+                    installationLabel = "Novo suporte",
+                )
+                val redeemed = fixture.awaitState {
+                    it.roleMode == RemoteAccessRoleMode.SUPPORT_PRESENT &&
+                        it.support.phase == SupportPairingPhase.PENDING &&
+                        !it.supportActionInProgress
+                }
+                assertEquals(REQUEST_ID_1, redeemed.support.pending?.requestId)
+                assertEquals(2, fixture.pairingTransport.totalCalls)
+            } finally {
+                fixture.close()
+            }
+        }
+
+    @Test
+    fun openSupportPairingDuringInFlightAttachSupportInitDoesNotDuplicateOrOverlapCurrentRequest() =
+        runBlocking {
+            val fixture = Fixture(initialAccount = null)
+            val currentEntered = CompletableDeferred<Unit>()
+            val releaseCurrent = CompletableDeferred<Unit>()
+            val currentCalls = AtomicInteger(0)
+            val validateCalls = AtomicInteger(0)
+            try {
+                fixture.seedPendingSupport()
+                fixture.pairingTransport.handler = { operation, _, _ ->
+                    when (operation) {
+                        PairingAccessOperation.CurrentRequest -> {
+                            val call = currentCalls.incrementAndGet()
+                            if (call == 1) {
+                                currentEntered.complete(Unit)
+                                releaseCurrent.await()
+                            }
+                            pairingResponse(200, approvedCurrentRequestJson())
+                        }
+
+                        PairingAccessOperation.ValidateSupportInstallation -> {
+                            validateCalls.incrementAndGet()
+                            pairingResponse(200, supportInstallationJson(generation = "2"))
+                        }
+
+                        else -> error("Unexpected operation: $operation")
+                    }
+                }
+
+                val lease = fixture.viewModel.attachSurface()
+                withTimeout(BARRIER_TIMEOUT_MILLIS) { currentEntered.await() }
+
+                val midPoll = fixture.viewModel.uiState.value
+                assertEquals(RemoteAccessRoleMode.SUPPORT_PRESENT, midPoll.roleMode)
+                assertEquals(SupportPairingPhase.VALIDATING, midPoll.support.phase)
+
+                // Opening Support Pairing while attach-time support init is in flight MUST NOT overlap.
+                fixture.viewModel.openSupportPairing(lease)
+                assertEquals(1, currentCalls.get())
+                assertFalse(fixture.viewModel.uiState.value.supportActionInProgress)
+
+                releaseCurrent.complete(Unit)
+                val confirmed = fixture.awaitState {
+                    it.roleMode == RemoteAccessRoleMode.SUPPORT_PRESENT &&
+                        it.support.phase == SupportPairingPhase.CONFIRMED &&
+                        !it.supportActionInProgress
+                }
+
+                assertEquals(MONITOR_ID, confirmed.support.confirmed?.monitorId)
+                assertEquals(1, currentCalls.get())
+                assertEquals(1, validateCalls.get())
+                assertEquals(2, fixture.pairingTransport.totalCalls)
+
+                // Once attach-time init completes, an explicit reopen still re-validates normally.
+                fixture.viewModel.openSupportPairing(lease)
+                fixture.awaitState {
+                    it.support.phase == SupportPairingPhase.CONFIRMED &&
+                        !it.supportActionInProgress &&
+                        validateCalls.get() == 2
+                }
+                assertEquals(1, currentCalls.get())
+                assertEquals(2, validateCalls.get())
+            } finally {
+                releaseCurrent.complete(Unit)
+                fixture.close()
+            }
+        }
+
     private class Fixture(
         initialAccount: OwnerAccount? = null,
         private val origin: String? = ORIGIN,

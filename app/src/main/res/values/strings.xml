@@ -181,7 +181,7 @@
     <string name="support_phase_pending_title">Aguardando aprovação do host</string>
     <string name="support_phase_pending_details">Pedido %1$s · Instalação %2$s · Prazo informado pelo servidor: %3$s.</string>
     <string name="support_phase_pending_notice">Sair desta tela não cancela o pedido no servidor. Depois que o host responder, reabra esta tela ou toque em Atualizar status.</string>
-    <string name="support_phase_validating">Pedido aprovado pelo host. Validando acesso de suporte com o servidor antes de confirmar.</string>
+    <string name="support_phase_validating">Consultando e validando o acesso de suporte com o servidor antes de confirmar.</string>
     <string name="support_phase_confirmed_title">Conectado como suporte</string>
     <string name="support_phase_confirmed_details">Instalação %1$s · Monitor %2$s · Vínculo %3$s · Geração observada: %4$s.</string>
     <string name="support_confirmed_disclaimer">A aprovação confirma apenas a autorização deste aparelho como suporte. Saldo compartilhado, histórico remoto, notificações, FCM e alertas remotos ainda não estão disponíveis nesta etapa. O monitor local continua independente.</string>

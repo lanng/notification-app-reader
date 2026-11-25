@@ -82,6 +82,7 @@ internal class RemoteAccessViewModel(
     private var hostActionJob: Job? = null
     private var supportActionJob: Job? = null
     private var hostSupportActionJob: Job? = null
+    private var attachSupportInitInFlight = false
 
     fun attachSurface(): Long {
         val lease: Long
@@ -282,7 +283,18 @@ internal class RemoteAccessViewModel(
     }
 
     fun openSupportPairing(lease: Long) {
-        if (!isRoleAllowedForSupport(lease, setFailureNoticeIfBlocked = false)) {
+        val shouldSkip = synchronized(lifecycleLock) {
+            if (!isCurrentLocked(lease)) {
+                true
+            } else {
+                val current = mutableUiState.value
+                !isRoleAllowedForSupport(current.roleMode) ||
+                    attachSupportInitInFlight ||
+                    current.support.phase == SupportPairingPhase.CREDENTIAL_LOST ||
+                    supportCoordinator?.state?.value?.phase == SupportPairingPhase.CREDENTIAL_LOST
+            }
+        }
+        if (shouldSkip) {
             return
         }
         launchSupportAction(lease = lease, refreshRoleAfter = true) {
@@ -508,36 +520,55 @@ internal class RemoteAccessViewModel(
     ) {
         try {
             val mode = resolveRoleMode()
-            if (!isCurrent(lease, generation)) {
-                return
+            val willInitializeSupport = mode == RemoteAccessRoleMode.SUPPORT_PRESENT ||
+                mode == RemoteAccessRoleMode.UNASSIGNED
+            var markedSupportInitInFlight = false
+            synchronized(lifecycleLock) {
+                if (!isCurrentLocked(lease, generation)) {
+                    return
+                }
+                if (willInitializeSupport) {
+                    attachSupportInitInFlight = true
+                    markedSupportInitInFlight = true
+                }
+                mutableUiState.update { it.copy(roleMode = mode) }
             }
-            updateUiStateIfCurrent(lease, generation) { it.copy(roleMode = mode) }
 
-            when (mode) {
-                RemoteAccessRoleMode.STORAGE_UNAVAILABLE,
-                RemoteAccessRoleMode.DUAL_ROLE_CONFLICT,
-                RemoteAccessRoleMode.CHECKING -> {
-                    // Fail closed: block mutations on both sides without deleting either record
-                    // and without initializing host or support sessions.
-                }
-
-                RemoteAccessRoleMode.SUPPORT_PRESENT -> {
-                    targetSupport.initialize()
-                    refreshRoleModeIfCurrent(lease, generation)
-                }
-
-                RemoteAccessRoleMode.HOST_PRESENT -> {
-                    targetHost.initialize()
-                    refreshRoleModeIfCurrent(lease, generation)
-                }
-
-                RemoteAccessRoleMode.UNASSIGNED -> {
-                    targetHost.initialize()
-                    if (!isCurrent(lease, generation)) {
-                        return
+            try {
+                when (mode) {
+                    RemoteAccessRoleMode.STORAGE_UNAVAILABLE,
+                    RemoteAccessRoleMode.DUAL_ROLE_CONFLICT,
+                    RemoteAccessRoleMode.CHECKING -> {
+                        // Fail closed: block mutations on both sides without deleting either record
+                        // and without initializing host or support sessions.
                     }
-                    targetSupport.initialize()
-                    refreshRoleModeIfCurrent(lease, generation)
+
+                    RemoteAccessRoleMode.SUPPORT_PRESENT -> {
+                        targetSupport.initialize()
+                        refreshRoleModeIfCurrent(lease, generation)
+                    }
+
+                    RemoteAccessRoleMode.HOST_PRESENT -> {
+                        targetHost.initialize()
+                        refreshRoleModeIfCurrent(lease, generation)
+                    }
+
+                    RemoteAccessRoleMode.UNASSIGNED -> {
+                        targetHost.initialize()
+                        if (!isCurrent(lease, generation)) {
+                            return
+                        }
+                        targetSupport.initialize()
+                        refreshRoleModeIfCurrent(lease, generation)
+                    }
+                }
+            } finally {
+                if (markedSupportInitInFlight) {
+                    synchronized(lifecycleLock) {
+                        if (isCurrentLocked(lease, generation)) {
+                            attachSupportInitInFlight = false
+                        }
+                    }
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -596,6 +627,10 @@ internal class RemoteAccessViewModel(
             else -> RemoteAccessRoleMode.UNASSIGNED
         }
 
+    private fun isRoleAllowedForSupport(mode: RemoteAccessRoleMode): Boolean =
+        mode == RemoteAccessRoleMode.UNASSIGNED ||
+            mode == RemoteAccessRoleMode.SUPPORT_PRESENT
+
     private fun isRoleAllowedForSupport(
         lease: Long,
         setFailureNoticeIfBlocked: Boolean,
@@ -604,9 +639,7 @@ internal class RemoteAccessViewModel(
             if (!isCurrentLocked(lease)) {
                 return false
             }
-            val mode = mutableUiState.value.roleMode
-            val allowed = mode == RemoteAccessRoleMode.UNASSIGNED ||
-                mode == RemoteAccessRoleMode.SUPPORT_PRESENT
+            val allowed = isRoleAllowedForSupport(mutableUiState.value.roleMode)
             if (!allowed && setFailureNoticeIfBlocked) {
                 mutableUiState.update { it.copy(notice = RemoteAccessNotice.ACTION_FAILED) }
             }
@@ -879,6 +912,7 @@ internal class RemoteAccessViewModel(
         hostActionJob = null
         supportActionJob = null
         hostSupportActionJob = null
+        attachSupportInitInFlight = false
         surfaceJob = null
         surfaceScope = null
         hostCoordinator = null

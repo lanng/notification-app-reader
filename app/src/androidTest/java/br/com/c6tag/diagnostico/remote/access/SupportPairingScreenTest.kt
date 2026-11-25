@@ -149,8 +149,19 @@ class SupportPairingScreenTest {
         compose.onNodeWithTag("support-refresh-status").performClick()
         assertEquals(1, refreshCalls)
 
-        ui.value = SupportPairingViewState(phase = SupportPairingPhase.VALIDATING)
-        compose.onNodeWithText("Validando acesso de suporte", substring = true).assertExists()
+        ui.value = SupportPairingViewState(
+            phase = SupportPairingPhase.VALIDATING,
+            pending = PendingSupportPairingInfo(
+                requestId = "11111111-1111-1111-1111-111111111111",
+                installationId = "22222222-2222-2222-2222-222222222222",
+                requestExpiresAtMillis = 1_764_000_900_000L,
+            ),
+        )
+        compose.onNodeWithText(
+            "Consultando e validando o acesso de suporte com o servidor antes de confirmar.",
+        ).assertExists()
+        compose.onNodeWithText("Pedido aprovado pelo host.", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Conectado como suporte").assertDoesNotExist()
 
         ui.value = SupportPairingViewState(
             phase = SupportPairingPhase.CONFIRMED,
