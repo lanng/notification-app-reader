@@ -5,10 +5,12 @@ import android.content.Intent
 import android.Manifest
 import android.app.NotificationManager
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
+import android.os.PersistableBundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -48,7 +50,25 @@ import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import br.com.c6tag.diagnostico.monitor.alerts.MonitorNotifier
 import br.com.c6tag.diagnostico.remote.access.GoogleCredentialRequestor
 import br.com.c6tag.diagnostico.remote.access.RemoteAccessViewModel
+import br.com.c6tag.diagnostico.remote.access.SecretValue
 import br.com.c6tag.diagnostico.ui.remote.RemoteAccessScreen
+
+internal fun buildSensitiveInvitationClipData(
+    label: String,
+    secret: SecretValue,
+): ClipData {
+    val clipData = ClipData.newPlainText(label, secret.reveal())
+    val extras = PersistableBundle().apply {
+        val sensitiveKey = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ClipDescription.EXTRA_IS_SENSITIVE
+        } else {
+            "android.content.extra.IS_SENSITIVE"
+        }
+        putBoolean(sensitiveKey, true)
+    }
+    clipData.description.extras = extras
+    return clipData
+}
 
 class MainActivity : ComponentActivity() {
     private var noticePermissionRequested = false
@@ -226,10 +246,56 @@ class MainActivity : ComponentActivity() {
                 onSignOut = { viewModel.signOut(lease) },
                 onCopyUid = { uid ->
                     clipboardScope.launch {
-                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Firebase UID", uid)))
+                        try {
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Firebase UID", uid)))
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Fail safely without crashing MainActivity or leaking exception details.
+                        }
                     }
                 },
                 onClose = onClose,
+                onOpenSupportPairing = { viewModel.openSupportPairing(lease) },
+                onSubmitSupportInvitation = { invitationSecret, installationLabel, replaceUncertainAttempt ->
+                    viewModel.submitSupportInvitation(
+                        lease = lease,
+                        invitationSecret = invitationSecret,
+                        installationLabel = installationLabel,
+                        replaceUncertainAttempt = replaceUncertainAttempt,
+                    )
+                },
+                onRefreshSupportStatus = { viewModel.refreshSupportStatus(lease) },
+                onOpenHostSupports = { viewModel.openHostSupports(lease) },
+                onRefreshHostSupports = { viewModel.refreshHostSupports(lease) },
+                onRevalidateHostSupportsSession = { viewModel.revalidateHostSupportsSession(lease) },
+                onIssueSupportInvitation = { viewModel.issueSupportInvitation(lease) },
+                onCancelSupportInvitation = { invitationId ->
+                    viewModel.cancelSupportInvitation(lease, invitationId)
+                },
+                onRequestHostSupportDecision = { action, targetId ->
+                    viewModel.requestHostSupportDecision(lease, action, targetId)
+                },
+                onCancelHostSupportDecision = { viewModel.cancelHostSupportDecision(lease) },
+                onConfirmHostSupportDecision = { decisionId ->
+                    viewModel.confirmHostSupportDecision(lease, decisionId)
+                },
+                onCopyInvitation = { invitationId ->
+                    clipboardScope.launch {
+                        try {
+                            val secret = viewModel.invitationForExplicitCopy(lease, invitationId)
+                                ?: return@launch
+                            val label = getString(R.string.pairing_clipboard_invitation_label)
+                            clipboard.setClipEntry(
+                                ClipEntry(buildSensitiveInvitationClipData(label, secret)),
+                            )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Fail safely without crashing MainActivity or leaking secret/exception details.
+                        }
+                    }
+                },
             )
         }
     }

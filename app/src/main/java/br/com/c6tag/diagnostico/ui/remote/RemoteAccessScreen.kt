@@ -1,13 +1,18 @@
 package br.com.c6tag.diagnostico.ui.remote
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -29,12 +34,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import br.com.c6tag.diagnostico.R
+import br.com.c6tag.diagnostico.remote.access.HostSupportDecisionAction
 import br.com.c6tag.diagnostico.remote.access.OwnerAccessFailureReason
 import br.com.c6tag.diagnostico.remote.access.RemoteAccessNotice
+import br.com.c6tag.diagnostico.remote.access.RemoteAccessRoleMode
 import br.com.c6tag.diagnostico.remote.access.RemoteAccessUiState
 import br.com.c6tag.diagnostico.remote.access.RemoteHostPhase
+import java.text.DateFormat
+import java.util.Date
+import java.util.Locale
+
+private enum class RemoteAccessSubRoute {
+    MAIN,
+    SUPPORT_PAIRING,
+    HOST_SUPPORTS,
+}
 
 @Composable
 internal fun RemoteAccessScreen(
@@ -47,19 +64,38 @@ internal fun RemoteAccessScreen(
     onSignOut: () -> Unit,
     onCopyUid: (String) -> Unit,
     onClose: () -> Unit,
+    onOpenSupportPairing: () -> Unit = {},
+    onSubmitSupportInvitation: (
+        invitationSecret: String,
+        installationLabel: String,
+        replaceUncertainAttempt: Boolean,
+    ) -> Unit = { _, _, _ -> },
+    onRefreshSupportStatus: () -> Unit = {},
+    onOpenHostSupports: () -> Unit = {},
+    onRefreshHostSupports: () -> Unit = {},
+    onRevalidateHostSupportsSession: () -> Unit = {},
+    onIssueSupportInvitation: () -> Unit = {},
+    onCancelSupportInvitation: (invitationId: String) -> Unit = {},
+    onRequestHostSupportDecision: (action: HostSupportDecisionAction, targetId: String) -> Unit = { _, _ -> },
+    onCancelHostSupportDecision: () -> Unit = {},
+    onConfirmHostSupportDecision: (decisionId: String) -> Unit = {},
+    onCopyInvitation: (invitationId: String) -> Unit = {},
 ) {
+    // Ephemeral sub-route only (never rememberSaveable).
+    var subRoute by remember { mutableStateOf(RemoteAccessSubRoute.MAIN) }
     var dialogConfirmationId by remember { mutableStateOf<String?>(null) }
     var replacementWarningConfirmed by remember(dialogConfirmationId) {
         mutableStateOf(false)
     }
     val confirmation = state.host.confirmation?.takeIf { candidate ->
-        state.host.phase == RemoteHostPhase.CONFIRMATION_READY &&
+        state.canActivateHost &&
+            state.host.phase == RemoteHostPhase.CONFIRMATION_READY &&
             state.account?.firebaseProjectId == candidate.firebaseProjectId &&
             state.account?.uid == candidate.uid &&
             state.configuredOrigin == candidate.origin
     }
     val activationDialogConfirmation = confirmation?.takeIf {
-        it.confirmationId == dialogConfirmationId
+        subRoute == RemoteAccessSubRoute.MAIN && it.confirmationId == dialogConfirmationId
     }
     val showActivationDialog = activationDialogConfirmation != null
     val busy = state.actionInProgress || state.googleRequestInProgress
@@ -74,13 +110,57 @@ internal fun RemoteAccessScreen(
         }
     }
 
+    BackHandler(enabled = subRoute != RemoteAccessSubRoute.MAIN) {
+        subRoute = RemoteAccessSubRoute.MAIN
+    }
+
     BackHandler(enabled = showActivationDialog) {
         cancelConfirmationDialog()
+    }
+
+    when (subRoute) {
+        RemoteAccessSubRoute.SUPPORT_PAIRING -> {
+            SupportPairingScreen(
+                state = state.support,
+                configuredOrigin = state.configuredOrigin,
+                roleMode = state.roleMode,
+                actionInProgress = state.supportActionInProgress,
+                notice = state.notice,
+                onSubmitInvitation = onSubmitSupportInvitation,
+                onRefreshStatus = onRefreshSupportStatus,
+                onBack = { subRoute = RemoteAccessSubRoute.MAIN },
+            )
+            return
+        }
+
+        RemoteAccessSubRoute.HOST_SUPPORTS -> {
+            HostSupportsScreen(
+                state = state.hostSupports,
+                hostAvailable = state.canManageSupports,
+                canRevalidateSession = state.roleMode == RemoteAccessRoleMode.HOST_PRESENT &&
+                    state.account != null,
+                actionInProgress = state.hostSupportActionInProgress,
+                notice = state.notice,
+                onRefresh = onRefreshHostSupports,
+                onRevalidateSession = onRevalidateHostSupportsSession,
+                onIssueInvitation = onIssueSupportInvitation,
+                onCancelInvitation = onCancelSupportInvitation,
+                onRequestDecision = onRequestHostSupportDecision,
+                onCancelDecision = onCancelHostSupportDecision,
+                onConfirmDecision = onConfirmHostSupportDecision,
+                onCopyInvitation = onCopyInvitation,
+                onBack = { subRoute = RemoteAccessSubRoute.MAIN },
+            )
+            return
+        }
+
+        RemoteAccessSubRoute.MAIN -> Unit
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(20.dp)
             .testTag("remote-access-scroll"),
@@ -88,7 +168,10 @@ internal fun RemoteAccessScreen(
     ) {
         OutlinedButton(
             onClick = onClose,
-            modifier = Modifier.testTag("remote-back-settings"),
+            modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("remote-back-settings"),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Text(stringResource(R.string.remote_back_settings))
         }
@@ -100,26 +183,17 @@ internal fun RemoteAccessScreen(
             text = stringResource(R.string.remote_local_monitor_explanation),
             style = MaterialTheme.typography.bodyMedium,
         )
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceVariant,
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.remote_api_configuration_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                if (state.configuredOrigin == null) {
-                    Text(stringResource(R.string.remote_api_not_configured))
-                } else {
-                    Text(stringResource(R.string.remote_api_configured, state.configuredOrigin))
-                }
-                Text(stringResource(R.string.remote_owner_setup_explanation))
+        RemoteSectionSurface {
+            Text(
+                text = stringResource(R.string.remote_api_configuration_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (state.configuredOrigin == null) {
+                Text(stringResource(R.string.remote_api_not_configured))
+            } else {
+                Text(stringResource(R.string.remote_api_configured, state.configuredOrigin))
             }
+            Text(stringResource(R.string.remote_owner_setup_explanation))
         }
 
         state.account?.let { account ->
@@ -133,7 +207,9 @@ internal fun RemoteAccessScreen(
                 OutlinedButton(
                     onClick = { onCopyUid(account.uid) },
                     enabled = !busy,
-                    modifier = Modifier.testTag("remote-copy-uid"),
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("remote-copy-uid"),
                 ) {
                     Text(stringResource(R.string.remote_copy_uid))
                 }
@@ -194,7 +270,10 @@ internal fun RemoteAccessScreen(
             Button(
                 onClick = onSignIn,
                 enabled = !busy,
-                modifier = Modifier.fillMaxWidth().testTag("remote-sign-in"),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("remote-sign-in"),
             ) {
                 Text(
                     stringResource(
@@ -211,7 +290,10 @@ internal fun RemoteAccessScreen(
                 Button(
                     onClick = onReauthenticate,
                     enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().testTag("remote-reauthenticate"),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("remote-reauthenticate"),
                 ) {
                     Text(stringResource(R.string.remote_reauthenticate))
                 }
@@ -221,7 +303,10 @@ internal fun RemoteAccessScreen(
                 enabled = !busy &&
                     state.configuredOrigin != null &&
                     !requiresReauthentication,
-                modifier = Modifier.fillMaxWidth().testTag("remote-discover"),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("remote-discover"),
             ) {
                 Text(
                     stringResource(
@@ -240,7 +325,10 @@ internal fun RemoteAccessScreen(
                         dialogConfirmationId = confirmation.confirmationId
                     },
                     enabled = !busy,
-                    modifier = Modifier.fillMaxWidth().testTag("remote-activate"),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("remote-activate"),
                 ) {
                     Text(stringResource(R.string.remote_activate))
                 }
@@ -248,11 +336,73 @@ internal fun RemoteAccessScreen(
             OutlinedButton(
                 onClick = onSignOut,
                 enabled = !busy,
-                modifier = Modifier.fillMaxWidth().testTag("remote-sign-out"),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("remote-sign-out"),
             ) {
                 Text(stringResource(R.string.remote_sign_out))
             }
             Text(stringResource(R.string.remote_sign_out_semantics))
+        }
+
+        RemoteSectionSurface {
+            Text(
+                text = stringResource(R.string.remote_pairing_section_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(R.string.remote_pairing_section_explanation),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+
+            roleModeNotice(state.roleMode)?.let { roleNoticeRes ->
+                Text(
+                    text = stringResource(roleNoticeRes),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            OutlinedButton(
+                onClick = {
+                    subRoute = RemoteAccessSubRoute.SUPPORT_PAIRING
+                    onOpenSupportPairing()
+                },
+                enabled = state.canEnterSupportFlow && !busy && !state.supportActionInProgress,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .testTag("remote-open-support-pairing"),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.remote_open_support_pairing),
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Start,
+                )
+            }
+
+            if (state.canManageSupports) {
+                OutlinedButton(
+                    onClick = {
+                        subRoute = RemoteAccessSubRoute.HOST_SUPPORTS
+                        onOpenHostSupports()
+                    },
+                    enabled = !busy && !state.hostSupportActionInProgress,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp)
+                        .testTag("remote-open-host-supports"),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.remote_open_host_supports),
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Start,
+                    )
+                }
+            }
         }
 
         Text(
@@ -331,6 +481,51 @@ internal fun RemoteAccessScreen(
 }
 
 @Composable
+internal fun RemoteSectionSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            content = content,
+        )
+    }
+}
+
+internal fun shortIdentifier(identifier: String): String =
+    if (identifier.length > 13) {
+        "${identifier.take(8)}…${identifier.takeLast(4)}"
+    } else {
+        identifier
+    }
+
+internal fun formatPairingTimestamp(millis: Long): String =
+    DateFormat.getDateTimeInstance(
+        DateFormat.SHORT,
+        DateFormat.MEDIUM,
+        Locale.getDefault(),
+    ).format(Date(millis))
+
+private fun roleModeNotice(roleMode: RemoteAccessRoleMode): Int? =
+    when (roleMode) {
+        RemoteAccessRoleMode.CHECKING -> R.string.remote_role_checking
+        RemoteAccessRoleMode.UNASSIGNED -> null
+        RemoteAccessRoleMode.HOST_PRESENT -> R.string.remote_role_host_present_support_blocked
+        RemoteAccessRoleMode.SUPPORT_PRESENT -> R.string.remote_role_support_present_host_blocked
+        RemoteAccessRoleMode.DUAL_ROLE_CONFLICT -> R.string.remote_role_dual_conflict
+        RemoteAccessRoleMode.STORAGE_UNAVAILABLE -> R.string.remote_role_storage_unavailable
+    }
+
+@Composable
 private fun remotePhaseMessage(state: RemoteAccessUiState): Int =
     when (state.host.phase) {
         RemoteHostPhase.LOCAL_ONLY -> R.string.remote_phase_local_only
@@ -351,8 +546,7 @@ private fun remotePhaseMessage(state: RemoteAccessUiState): Int =
         RemoteHostPhase.RECOVERABLE_ERROR -> R.string.remote_phase_recoverable_error
     }
 
-@Composable
-private fun remoteNoticeMessage(notice: RemoteAccessNotice): Int =
+internal fun remoteNoticeMessage(notice: RemoteAccessNotice): Int =
     when (notice) {
         RemoteAccessNotice.GOOGLE_CANCELLED -> R.string.remote_google_cancelled
         RemoteAccessNotice.GOOGLE_UNAVAILABLE -> R.string.remote_google_unavailable

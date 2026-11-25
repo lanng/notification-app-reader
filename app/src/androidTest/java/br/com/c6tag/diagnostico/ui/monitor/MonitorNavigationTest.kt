@@ -12,7 +12,9 @@ import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import br.com.c6tag.diagnostico.monitor.*
+import br.com.c6tag.diagnostico.remote.access.RemoteAccessUiState
 import br.com.c6tag.diagnostico.ui.AuthorizationStatus
+import br.com.c6tag.diagnostico.ui.remote.RemoteAccessScreen
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -275,5 +277,64 @@ class MonitorNavigationTest {
         compose.onNodeWithText("Revisar saldo").assertIsNotEnabled()
         compose.onNodeWithText("Cancelar conferência").performClick()
         assertEquals(1, cancels)
+    }
+
+    @Test fun remoteAccessSubpageKeepsSingleBackControlReturningToMainThenSettings() {
+        var remoteOpens = 0
+        var supportOpens = 0
+        compose.setContent {
+            MonitorTheme {
+                MonitorRoot(
+                    state = MonitorUiState(isLoading = false),
+                    actions = MonitorActions(),
+                    referenceActions = ReferenceActions(),
+                    onEnableNotices = {},
+                    diagnostic = {},
+                    onOpenRemoteAccess = { remoteOpens++ },
+                    remoteAccess = { onClose ->
+                        RemoteAccessScreen(
+                            state = RemoteAccessUiState(configuredOrigin = "https://api.example.test"),
+                            onSignIn = {},
+                            onReauthenticate = {},
+                            onDiscover = {},
+                            onConfirmActivation = { _, _ -> },
+                            onCancelConfirmation = {},
+                            onSignOut = {},
+                            onCopyUid = {},
+                            onClose = onClose,
+                            onOpenSupportPairing = { supportOpens++ },
+                        )
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("tab-settings").performClick()
+        compose.onNodeWithTag("settings-scroll")
+            .performScrollToNode(hasTestTag("open-remote-access"))
+        compose.onNodeWithTag("open-remote-access").performClick()
+
+        assertEquals(1, remoteOpens)
+        assertEquals(0, supportOpens)
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(1)
+        compose.onNodeWithTag("remote-back-main").assertDoesNotExist()
+
+        compose.onNodeWithTag("remote-access-scroll")
+            .performScrollToNode(hasTestTag("remote-open-support-pairing"))
+        compose.onNodeWithTag("remote-open-support-pairing").performClick()
+
+        assertEquals(1, supportOpens)
+        compose.onAllNodesWithText("Voltar ao acesso remoto").assertCountEquals(1)
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(0)
+
+        compose.onNodeWithTag("remote-back-main").performClick()
+        assertEquals(1, remoteOpens)
+        assertEquals(1, supportOpens)
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(1)
+        compose.onNodeWithTag("remote-back-main").assertDoesNotExist()
+
+        compose.onNodeWithTag("remote-back-settings").performClick()
+        compose.onNodeWithText("Monitor e acesso").assertIsDisplayed()
+        compose.onNodeWithTag("tab-settings").assertIsSelected()
     }
 }

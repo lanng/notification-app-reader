@@ -1,5 +1,6 @@
 package br.com.c6tag.diagnostico.remote.access
 
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -345,6 +346,173 @@ class RemoteAccessScreenTest {
         compose.onNodeWithTag("tab-settings").assertIsSelected()
         assertEquals(1, remoteOpens)
         assertEquals(0, networkActions)
+    }
+
+    @Test
+    fun connectAsSupportIsAccessibleWithoutGoogleAndUsesSingleBackControl() {
+        var supportOpens = 0
+        var closes = 0
+        var signIns = 0
+
+        compose.setContent {
+            MonitorTheme {
+                RemoteAccessScreen(
+                    state = remoteUiState(account = null),
+                    onSignIn = { signIns++ },
+                    onReauthenticate = {},
+                    onDiscover = {},
+                    onConfirmActivation = { _, _ -> },
+                    onCancelConfirmation = {},
+                    onSignOut = {},
+                    onCopyUid = {},
+                    onClose = { closes++ },
+                    onOpenSupportPairing = { supportOpens++ },
+                )
+            }
+        }
+
+        assertEquals(0, supportOpens)
+        assertEquals(0, signIns)
+        compose.onNodeWithTag("remote-open-host-supports").assertDoesNotExist()
+        compose.onNodeWithTag("remote-access-scroll")
+            .performScrollToNode(hasTestTag("remote-open-support-pairing"))
+        compose.onNodeWithTag("remote-open-support-pairing").assertIsEnabled().performClick()
+
+        assertEquals(1, supportOpens)
+        assertEquals(0, signIns)
+        compose.onNodeWithTag("remote-back-settings").assertDoesNotExist()
+        compose.onNodeWithTag("remote-back-main").assertIsDisplayed().performClick()
+
+        assertEquals(0, closes)
+        assertEquals(1, supportOpens)
+        compose.onNodeWithTag("remote-back-settings").assertIsDisplayed()
+        compose.onNodeWithTag("remote-back-main").assertDoesNotExist()
+    }
+
+    @Test
+    fun manageSupportsIsShownOnlyForValidatedHostAndDialogHasBackPriority() {
+        val ui = mutableStateOf(
+            remoteUiState(
+                account = ownerAccount(),
+                host = RemoteHostViewState(phase = RemoteHostPhase.SIGNED_IN_API_NOT_READY),
+            ),
+        )
+        var hostSupportsOpens = 0
+        var decisionCancels = 0
+        var decisionConfirms = 0
+        var closes = 0
+        var backDispatcher: androidx.activity.OnBackPressedDispatcher? = null
+
+        compose.setContent {
+            backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            MonitorTheme {
+                RemoteAccessScreen(
+                    state = ui.value,
+                    onSignIn = {},
+                    onReauthenticate = {},
+                    onDiscover = {},
+                    onConfirmActivation = { _, _ -> },
+                    onCancelConfirmation = {},
+                    onSignOut = {},
+                    onCopyUid = {},
+                    onClose = { closes++ },
+                    onOpenHostSupports = { hostSupportsOpens++ },
+                    onCancelHostSupportDecision = {
+                        decisionCancels++
+                        ui.value = ui.value.copy(
+                            hostSupports = ui.value.hostSupports.copy(pendingConfirmation = null),
+                        )
+                    },
+                    onConfirmHostSupportDecision = { decisionConfirms++ },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("remote-open-host-supports").assertDoesNotExist()
+        assertEquals(0, hostSupportsOpens)
+
+        ui.value = ui.value.copy(
+            roleMode = RemoteAccessRoleMode.HOST_PRESENT,
+            host = RemoteHostViewState(
+                phase = RemoteHostPhase.ACTIVE_CONFIRMED,
+                verifiedHost = VerifiedHostAccess(
+                    installationId = "installation-1",
+                    monitorId = "monitor-1",
+                    membershipId = "membership-1",
+                    generation = generation(),
+                ),
+            ),
+            hostSupports = HostSupportViewState(
+                phase = HostSupportPhase.READY,
+                listSnapshotFresh = true,
+                pendingConfirmation = HostSupportDecisionConfirmation(
+                    decisionId = "decision-back-test",
+                    action = HostSupportDecisionAction.REJECT_REQUEST,
+                    targetId = "11111111-1111-1111-1111-111111111111",
+                    installationId = "22222222-2222-2222-2222-222222222222",
+                    targetLabel = "Celular",
+                    targetTimestampMillis = 1_764_000_000_000L,
+                ),
+            ),
+        )
+
+        compose.onNodeWithTag("remote-access-scroll")
+            .performScrollToNode(hasTestTag("remote-open-host-supports"))
+        compose.onNodeWithTag("remote-open-host-supports").assertIsEnabled().performClick()
+        assertEquals(1, hostSupportsOpens)
+        compose.onNodeWithTag("host-support-decision-dialog").assertIsDisplayed()
+
+        compose.runOnIdle { backDispatcher?.onBackPressed() }
+        compose.waitForIdle()
+        assertEquals(1, decisionCancels)
+        assertEquals(0, decisionConfirms)
+        compose.onNodeWithTag("host-support-decision-dialog").assertDoesNotExist()
+        compose.onNodeWithTag("remote-back-main").assertExists()
+
+        compose.runOnIdle { backDispatcher?.onBackPressed() }
+        compose.waitForIdle()
+        assertEquals(0, closes)
+        compose.onNodeWithTag("remote-back-settings").assertExists()
+    }
+
+    @Test
+    fun roleConflictsBlockOppositeFlowHonestlyWithoutWipeSuggestions() {
+        val ui = mutableStateOf(
+            remoteUiState(
+                account = ownerAccount(),
+                host = RemoteHostViewState(
+                    phase = RemoteHostPhase.CONFIRMATION_READY,
+                    confirmation = confirmation(),
+                ),
+            ).copy(roleMode = RemoteAccessRoleMode.SUPPORT_PRESENT),
+        )
+
+        compose.setContent {
+            MonitorTheme {
+                RemoteAccessScreen(
+                    state = ui.value,
+                    onSignIn = {},
+                    onReauthenticate = {},
+                    onDiscover = {},
+                    onConfirmActivation = { _, _ -> },
+                    onCancelConfirmation = {},
+                    onSignOut = {},
+                    onCopyUid = {},
+                    onClose = {},
+                )
+            }
+        }
+
+        compose.onNodeWithTag("remote-activate").assertDoesNotExist()
+        compose.onNodeWithText("use outro aparelho", substring = true, ignoreCase = true)
+            .assertExists()
+        compose.onNodeWithText("desinstalar", substring = true, ignoreCase = true)
+            .assertDoesNotExist()
+
+        ui.value = ui.value.copy(roleMode = RemoteAccessRoleMode.HOST_PRESENT)
+        compose.onNodeWithTag("remote-access-scroll")
+            .performScrollToNode(hasTestTag("remote-open-support-pairing"))
+        compose.onNodeWithTag("remote-open-support-pairing").assertIsNotEnabled()
     }
 
     private fun remoteUiState(
