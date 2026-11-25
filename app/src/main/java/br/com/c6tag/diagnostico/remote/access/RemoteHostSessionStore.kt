@@ -28,6 +28,9 @@ import kotlinx.coroutines.withContext
 internal interface RemoteHostSessionStore {
     suspend fun load(expectedContext: RemoteHostOwnerContext): RemoteHostSessionLoad
 
+    suspend fun loadActiveForOrigin(origin: String): RemoteHostSessionLoad =
+        RemoteHostSessionLoad.Empty
+
     suspend fun presence(): RemoteSessionPresence
 
     suspend fun beginAttempt(
@@ -500,6 +503,72 @@ internal class PersistentRemoteHostSessionStore(
                             record.toHostActivation(expectedContext.owner),
                         )
                     }
+                }
+            } catch (_: RemoteHostKeyUnavailableException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.KEY_UNAVAILABLE)
+            } catch (_: AEADBadTagException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.AUTHENTICATION_FAILED)
+            } catch (_: EOFException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.CORRUPT_RECORD)
+            } catch (_: UnsupportedRemoteHostSessionVersionException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.UNSUPPORTED_VERSION)
+            } catch (_: RemoteHostSessionRecordFormatException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.CORRUPT_RECORD)
+            } catch (_: IOException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.PERSISTENCE_FAILURE)
+            } catch (_: GeneralSecurityException) {
+                RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.KEY_UNAVAILABLE)
+            }
+        }
+    }
+
+    override suspend fun loadActiveForOrigin(origin: String): RemoteHostSessionLoad {
+        if (
+            origin.length > MAX_REMOTE_HOST_ORIGIN_BYTES ||
+            canonicalOwnerApiOrigin(origin) != origin
+        ) {
+            return RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.INVALID_CONTEXT)
+        }
+        return withSerializedIo {
+            try {
+                val bytes = file.readRecord(MAX_REMOTE_HOST_RECORD_BYTES + 1)
+                    ?: return@withSerializedIo RemoteHostSessionLoad.Empty
+                if (bytes.size > MAX_REMOTE_HOST_RECORD_BYTES) {
+                    return@withSerializedIo RemoteHostSessionLoad.Unavailable(
+                        RemoteHostSessionProblem.CORRUPT_RECORD,
+                    )
+                }
+                val header = codec.readHeader(bytes)
+                if (header.origin != origin) {
+                    return@withSerializedIo RemoteHostSessionLoad.Unavailable(
+                        RemoteHostSessionProblem.ORIGIN_MISMATCH,
+                    )
+                }
+                val key = keys.existingKey()
+                    ?: return@withSerializedIo RemoteHostSessionLoad.Unavailable(
+                        RemoteHostSessionProblem.KEY_UNAVAILABLE,
+                    )
+                val record = codec.decode(bytes, key)
+                if (record.origin != origin) {
+                    return@withSerializedIo RemoteHostSessionLoad.Unavailable(
+                        RemoteHostSessionProblem.ORIGIN_MISMATCH,
+                    )
+                }
+                when (record) {
+                    is RemoteHostStoredRecord.Pending -> RemoteHostSessionLoad.PendingAttempt(
+                        attemptId = record.attemptId,
+                        expectedGeneration = record.expectedGeneration,
+                    )
+
+                    is RemoteHostStoredRecord.Active -> RemoteHostSessionLoad.ActiveSession(
+                        record.toHostActivation(
+                            OwnerAccount(
+                                firebaseProjectId = record.firebaseProjectId,
+                                uid = record.uid,
+                                label = null,
+                            ),
+                        ),
+                    )
                 }
             } catch (_: RemoteHostKeyUnavailableException) {
                 RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.KEY_UNAVAILABLE)

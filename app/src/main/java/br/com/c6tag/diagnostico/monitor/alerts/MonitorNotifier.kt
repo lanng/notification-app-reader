@@ -16,6 +16,8 @@ import android.provider.Settings
 import br.com.c6tag.diagnostico.MainActivity
 import br.com.c6tag.diagnostico.R
 import br.com.c6tag.diagnostico.monitor.MonitorOverview
+import br.com.c6tag.diagnostico.remote.SharedAlertSeverity
+import br.com.c6tag.diagnostico.remote.classifySharedAlert
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
@@ -109,11 +111,15 @@ internal class MonitorNotifier(
         val content = context.getString(
             R.string.monitor_alert_content, money(cents), money(overview.settings.limitCents),
         )
+        val severity = classifySharedAlert(cents, overview.settings.limitCents)
+        val titleRes = when {
+            overview.needsReference -> R.string.monitor_alert_review_title
+            severity == SharedAlertSeverity.CRITICAL -> R.string.monitor_alert_critical_title
+            else -> R.string.monitor_alert_low_title
+        }
         return Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_tag_notification)
-            .setContentTitle(context.getString(
-                if (overview.needsReference) R.string.monitor_alert_review_title else R.string.monitor_alert_low_title,
-            ))
+            .setContentTitle(context.getString(titleRes))
             .setContentText(content)
             .setStyle(Notification.BigTextStyle().bigText(content))
             .setVisibility(Notification.VISIBILITY_PRIVATE)

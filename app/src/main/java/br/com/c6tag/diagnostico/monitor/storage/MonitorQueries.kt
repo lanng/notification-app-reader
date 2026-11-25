@@ -50,6 +50,7 @@ internal object MonitorQueries {
                     EmissionIntent(it.string("id"), version, it.long("intent_requested_at_ms"))
                 },
                 it.nullString("last_submission_outcome")?.let(SubmissionOutcome::valueOf),
+                it.int("emission_count"),
             )
         }
 

@@ -88,6 +88,7 @@ internal object MonitorAlertSql {
             put("intent_version", cycle.emissionIntent?.version)
             put("intent_requested_at_ms", cycle.emissionIntent?.requestedAtMs)
             put("last_submission_outcome", cycle.lastSubmissionOutcome?.name)
+            put("emission_count", cycle.emissionCount)
         }
         if (previous?.id == cycle.id) {
             check(database.update("monitor_alert_cycles", values, "id=?", arrayOf(cycle.id)) == 1)

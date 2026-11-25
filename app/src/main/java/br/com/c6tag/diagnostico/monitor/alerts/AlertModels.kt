@@ -22,6 +22,7 @@ internal data class AlertCycle(
     val pauseUntilMs: Long? = null,
     val emissionIntent: EmissionIntent? = null,
     val lastSubmissionOutcome: SubmissionOutcome? = null,
+    val emissionCount: Int = 0,
 )
 
 // ACCEPTED means the platform call succeeded, not that sound or reading occurred.

@@ -71,6 +71,7 @@ internal class AlertPolicy {
                 nextReminderAtMs = deadline(nowMs, settings.repeatMinutes),
                 emissionIntent = null,
                 lastSubmissionOutcome = outcome,
+                emissionCount = cycle.emissionCount + 1,
             ))
         }
     }
