@@ -29,6 +29,58 @@ import org.junit.Test
 
 class RemoteHostSessionStoreTest {
     @Test
+    fun presenceReadsOnlyOneByteAndDoesNotNeedADecryptableHostRecord() = runBlocking {
+        val file = MemoryAtomicRemoteHostFile()
+        val keys = JceTestKeyProvider()
+        val store = PersistentRemoteHostSessionStore(file, keys)
+
+        assertEquals(RemoteSessionPresence.Absent, store.presence())
+        assertEquals(1, file.readLimits.last())
+        assertEquals(0, keys.existingKeyReads)
+
+        file.record = byteArrayOf()
+        assertEquals(RemoteSessionPresence.Present, store.presence())
+        assertEquals(1, file.readLimits.last())
+        assertEquals(0, keys.existingKeyReads)
+
+        file.record = byteArrayOf(0x01)
+        keys.keyAvailable = false
+        assertEquals(RemoteSessionPresence.Present, store.presence())
+        assertEquals(1, file.readLimits.last())
+        assertEquals(0, keys.existingKeyReads)
+    }
+
+    @Test
+    fun presenceReportsReadFailureAsUnavailableInsteadOfTreatingItAsAbsent() = runBlocking {
+        val file = MemoryAtomicRemoteHostFile().apply {
+            nextReadFailure = IOException("synthetic host presence read failure")
+        }
+        val store = PersistentRemoteHostSessionStore(file, JceTestKeyProvider())
+
+        assertEquals(
+            RemoteSessionPresence.Unavailable(RemoteSupportSessionProblem.PERSISTENCE_FAILURE),
+            store.presence(),
+        )
+        assertEquals(1, file.readLimits.last())
+    }
+
+    @Test
+    fun unexpectedPresenceReadFailurePropagatesInsteadOfBecomingOrdinaryUnavailability() =
+        runBlocking {
+            val failure = IllegalStateException("synthetic host presence programming failure")
+            val file = MemoryAtomicRemoteHostFile().apply {
+                nextReadRuntimeFailure = failure
+            }
+            val store = PersistentRemoteHostSessionStore(file, JceTestKeyProvider())
+
+            val observedFailure = runCatching { store.presence() }.exceptionOrNull()
+
+            assertTrue(observedFailure is IllegalStateException)
+            assertEquals(failure.message, observedFailure?.message)
+            assertEquals(1, file.readLimits.last())
+        }
+
+    @Test
     fun sessionFileNameMustRemainDirectlyInsideNoBackupDirectory() {
         val noBackupDirectory = File("/app/no_backup")
 
@@ -1001,6 +1053,10 @@ class RemoteHostSessionStoreTest {
         @Volatile
         var record: ByteArray? = null
         @Volatile
+        var nextReadFailure: IOException? = null
+        @Volatile
+        var nextReadRuntimeFailure: RuntimeException? = null
+        @Volatile
         var nextWriteFailure: IOException? = null
         @Volatile
         var nextDeleteFailure: IOException? = null
@@ -1012,11 +1068,21 @@ class RemoteHostSessionStoreTest {
             private set
         var deleteCount = 0
             private set
+        val readLimits = mutableListOf<Int>()
 
         override fun readRecord(maximumBytes: Int): ByteArray? {
             require(maximumBytes > 0)
+            readLimits += maximumBytes
+            nextReadRuntimeFailure?.let { failure ->
+                nextReadRuntimeFailure = null
+                throw failure
+            }
+            nextReadFailure?.let { failure ->
+                nextReadFailure = null
+                throw failure
+            }
             val current = record ?: return null
-            return current.copyOf()
+            return current.copyOf(minOf(current.size, maximumBytes))
         }
 
         override fun writeAtomically(record: ByteArray) {
@@ -1085,8 +1151,10 @@ class RemoteHostSessionStoreTest {
         @Volatile
         var existingKeyFailure: GeneralSecurityException? = null
         var keyCreations = 0
+        var existingKeyReads = 0
 
         override fun existingKey(): SecretKey? {
+            existingKeyReads += 1
             existingKeyFailure?.let { failure -> throw failure }
             return key.takeIf { keyAvailable }
         }

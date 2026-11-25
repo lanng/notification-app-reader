@@ -29,13 +29,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.CancellationException
@@ -53,6 +56,1562 @@ import org.junit.Test
 
 class RemoteHostCoordinatorTest {
     @Test
+    fun hostActivationDoesNotBeginJournalWhenSupportSessionIsPresent() = runBlocking {
+        val events = mutableListOf<String>()
+        val identity = RecordingOwnerIdentity(events, OWNER)
+        val transport = ScriptedOwnerAccessTransport(events)
+        val store = RecordingRemoteHostSessionStore(events)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val guard = RemoteRoleGuard(
+            hostPresence = { store.presence() },
+            supportPresence = { RemoteSessionPresence.Present },
+        )
+        val coordinator = coordinator(identity, transport, store, scope, guard)
+
+        try {
+            coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+            coordinator.discoverOwnerMonitor()
+            val confirmation = requireNotNull(coordinator.state.value.confirmation)
+
+            coordinator.confirmHostActivation(confirmation.confirmationId)
+
+            assertEquals(0, store.beginAttemptCalls)
+            assertEquals(0, transport.activationPostCount)
+            assertEquals(RemoteHostPhase.RECOVERABLE_ERROR, coordinator.state.value.phase)
+        } finally {
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun hostRecoveryDoesNotReplacePendingJournalWhenSupportSessionIsPresent() = runBlocking {
+        val events = mutableListOf<String>()
+        val identity = RecordingOwnerIdentity(events, OWNER)
+        val transport = ScriptedOwnerAccessTransport(events)
+        val store = RecordingRemoteHostSessionStore(events)
+        val pending = store.delegate.beginAttempt(REMOTE_CONTEXT, generation("0"))
+            as RemoteHostSessionWriteResult.PendingAttemptStarted
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val guard = RemoteRoleGuard(
+            hostPresence = { store.presence() },
+            supportPresence = { RemoteSessionPresence.Present },
+        )
+        val coordinator = coordinator(identity, transport, store, scope, guard)
+
+        try {
+            coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+            coordinator.initialize()
+            coordinator.reauthenticate(SecretValue.of("synthetic-google-id-token"))
+            coordinator.discoverOwnerMonitor()
+            val confirmation = requireNotNull(coordinator.state.value.confirmation)
+
+            coordinator.confirmHostActivation(confirmation.confirmationId)
+
+            assertEquals(0, store.beginRecoveryAttemptCalls)
+            assertEquals(
+                RemoteHostSessionLoad.PendingAttempt(pending.attemptId, generation("0")),
+                store.delegate.load(REMOTE_CONTEXT),
+            )
+            assertEquals(0, transport.activationPostCount)
+            assertEquals(RemoteHostPhase.RECOVERABLE_ERROR, coordinator.state.value.phase)
+        } finally {
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun administrationLeaseRequiresAnActiveConfirmedHostAndBindsOnlyVerifiedCredentials() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(events)
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.HOST_NOT_ACTIVE,
+                    ),
+                    provider.acquireLease(),
+                )
+
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.HOST_NOT_ACTIVE,
+                    ),
+                    provider.acquireLease(),
+                )
+
+                val confirmation = requireNotNull(coordinator.state.value.confirmation)
+                coordinator.confirmHostActivation(confirmation.confirmationId)
+
+                val lease = readyLease(provider.acquireLease())
+                assertEquals(
+                    HostAdministrationSessionResult.Ready(Unit),
+                    provider.validateLease(lease),
+                )
+                assertFalse(lease.toString().contains(ACTIVATION_PAT))
+                assertFalse(coordinator.state.value.toString().contains(ACTIVATION_PAT))
+
+                var callbackCount = 0
+                val operation = provider.withValidatedLease(lease) { hostLease ->
+                    callbackCount += 1
+                    assertEquals(ORIGIN, hostLease.origin)
+                    assertEquals("monitor-opaque", hostLease.monitorId)
+                    assertEquals(ACTIVATION_PAT, hostLease.accessToken.reveal())
+                    "synthetic-admin-result"
+                }
+
+                assertEquals(
+                    HostAdministrationSessionResult.Ready("synthetic-admin-result"),
+                    operation,
+                )
+                assertEquals(1, callbackCount)
+                assertEquals(1, transport.activationPostCount)
+                assertEquals(
+                    listOf(
+                        OwnerAccessPath.OWNER_MONITOR,
+                        OwnerAccessPath.HOST_ACTIVATIONS,
+                        OwnerAccessPath.INSTALLATION,
+                    ),
+                    transport.calls.map { call -> call.path },
+                )
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun administrationLeaseRejectsMissingPendingUnavailableAndMismatchedHostRecords() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(events)
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                val confirmation = requireNotNull(coordinator.state.value.confirmation)
+                coordinator.confirmHostActivation(confirmation.confirmationId)
+                val activationPostsBeforeChecks = transport.activationPostCount
+
+                val mismatchedRecords = listOf(
+                    RemoteHostSessionLoad.Empty,
+                    RemoteHostSessionLoad.PendingAttempt(
+                        RemoteHostAttemptId.generated("00000000000000000000000000000001"),
+                        generation("1"),
+                    ),
+                    RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.KEY_UNAVAILABLE),
+                    RemoteHostSessionLoad.Unavailable(RemoteHostSessionProblem.CORRUPT_RECORD),
+                    RemoteHostSessionLoad.Unavailable(
+                        RemoteHostSessionProblem.PERSISTENCE_FAILURE,
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation("different-installation", "1", ACTIVATION_PAT),
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation(
+                            "installation-opaque",
+                            "1",
+                            ACTIVATION_PAT,
+                            monitorId = "different-monitor",
+                        ),
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation(
+                            "installation-opaque",
+                            "1",
+                            ACTIVATION_PAT,
+                            membershipId = "different-membership",
+                        ),
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation(
+                            "installation-opaque",
+                            "2",
+                            ACTIVATION_PAT,
+                        ),
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation(
+                            "installation-opaque",
+                            "1",
+                            "synthetic-replaced-host-pat",
+                        ),
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation(
+                            "installation-opaque",
+                            "1",
+                            ACTIVATION_PAT,
+                            owner = OwnerAccount("different-project", "different-uid", null),
+                        ),
+                    ),
+                    RemoteHostSessionLoad.ActiveSession(
+                        hostActivation(
+                            "installation-opaque",
+                            "1",
+                            ACTIVATION_PAT,
+                            origin = "https://other.example.test",
+                        ),
+                    ),
+                )
+
+                mismatchedRecords.forEach { mismatchedRecord ->
+                    store.loadOverride = mismatchedRecord
+
+                    assertEquals(
+                        HostAdministrationSessionResult.Rejected(
+                            HostAdministrationSessionFailure.SESSION_UNAVAILABLE,
+                        ),
+                        provider.acquireLease(),
+                    )
+                }
+                assertEquals(activationPostsBeforeChecks, transport.activationPostCount)
+                assertTrue(
+                    (store.delegate.load(REMOTE_CONTEXT) as RemoteHostSessionLoad.ActiveSession)
+                        .activation.accessToken.reveal() == ACTIVATION_PAT,
+                )
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun administrationLeaseRevalidatesTheSavedRecordAfterTheOperationBeforeReturningResult() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(events)
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                val confirmation = requireNotNull(coordinator.state.value.confirmation)
+                coordinator.confirmHostActivation(confirmation.confirmationId)
+                val lease = readyLease(provider.acquireLease())
+
+                val operation = provider.withValidatedLease(lease) {
+                    store.loadOverride = RemoteHostSessionLoad.PendingAttempt(
+                        RemoteHostAttemptId.generated("00000000000000000000000000000002"),
+                        generation("1"),
+                    )
+                    "response-must-not-be-published"
+                }
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.SESSION_UNAVAILABLE,
+                    ),
+                    operation,
+                )
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun changedSavedPatIsRejectedBeforePairingCredentialsReachAnOperation() = runBlocking {
+        val events = mutableListOf<String>()
+        val identity = RecordingOwnerIdentity(events, OWNER)
+        val transport = ScriptedOwnerAccessTransport(events)
+        val store = RecordingRemoteHostSessionStore(events)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = coordinator(identity, transport, store, scope)
+        val provider: HostAdministrationSessionProvider = coordinator
+
+        try {
+            coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+            coordinator.discoverOwnerMonitor()
+            coordinator.confirmHostActivation(
+                requireNotNull(coordinator.state.value.confirmation).confirmationId,
+            )
+            val lease = readyLease(provider.acquireLease())
+            store.loadOverride = RemoteHostSessionLoad.ActiveSession(
+                hostActivation(
+                    "installation-opaque",
+                    "1",
+                    "synthetic-file-replaced-host-pat",
+                ),
+            )
+            var callbackCount = 0
+
+            val result = provider.withValidatedLease(lease) {
+                callbackCount += 1
+                "must-not-run"
+            }
+
+            assertEquals(
+                HostAdministrationSessionResult.Rejected(
+                    HostAdministrationSessionFailure.SESSION_UNAVAILABLE,
+                ),
+                result,
+            )
+            assertEquals(0, callbackCount)
+            assertEquals(
+                ACTIVATION_PAT,
+                (store.delegate.load(REMOTE_CONTEXT) as RemoteHostSessionLoad.ActiveSession)
+                    .activation.accessToken.reveal(),
+            )
+        } finally {
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun adminAuthorizationRejectionInvalidatesLeaseUntilExplicitHostRevalidation() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                installationResponses = listOf(
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                    OwnerAccessTransportResult.NetworkFailure,
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                ),
+            )
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                val confirmation = requireNotNull(coordinator.state.value.confirmation)
+                coordinator.confirmHostActivation(confirmation.confirmationId)
+                val oldLease = readyLease(provider.acquireLease())
+
+                provider.invalidateLease(
+                    oldLease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+                assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+                assertEquals(RemoteHostPhase.ACTIVE_CONFIRMED, coordinator.state.value.phase)
+
+                coordinator.initialize()
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+                assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.HOST_NOT_ACTIVE,
+                    ),
+                    provider.revalidateAdministrationSession(),
+                )
+                coordinator.initialize()
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+                assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+
+                assertEquals(
+                    HostAdministrationSessionResult.Ready(Unit),
+                    provider.revalidateAdministrationSession(),
+                )
+                val newLease = readyLease(provider.acquireLease())
+                provider.invalidateLease(
+                    oldLease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+
+                assertEquals(
+                    HostAdministrationSessionResult.Ready(Unit),
+                    provider.validateLease(newLease),
+                )
+                assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun oldLeaseCallbackCannotPublishOrInvalidateLeaseFromNewOwnerEpoch() = runBlocking {
+        val events = mutableListOf<String>()
+        val identity = RecordingOwnerIdentity(events, OWNER)
+        val transport = ScriptedOwnerAccessTransport(
+            events = events,
+            installationResponses = listOf(
+                response(200, INSTALLATION),
+                response(200, INSTALLATION),
+            ),
+        )
+        val store = RecordingRemoteHostSessionStore(events)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = coordinator(identity, transport, store, scope)
+        val provider: HostAdministrationSessionProvider = coordinator
+        val callbackStarted = CompletableDeferred<Unit>()
+        val releaseCallback = CompletableDeferred<Unit>()
+        var oldOperation: kotlinx.coroutines.Deferred<HostAdministrationSessionResult<String>>? = null
+
+        try {
+            coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+            coordinator.discoverOwnerMonitor()
+            val confirmation = requireNotNull(coordinator.state.value.confirmation)
+            coordinator.confirmHostActivation(confirmation.confirmationId)
+            val oldLease = readyLease(provider.acquireLease())
+
+            oldOperation = async(start = CoroutineStart.UNDISPATCHED) {
+                provider.withValidatedLease(oldLease) {
+                    callbackStarted.complete(Unit)
+                    releaseCallback.await()
+                    "stale-response"
+                }
+            }
+            withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                callbackStarted.await()
+            }
+
+            coordinator.initialize()
+            val newLease = readyLease(provider.acquireLease())
+            provider.invalidateLease(
+                oldLease,
+                HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+            )
+            assertEquals(
+                HostAdministrationSessionResult.Ready(Unit),
+                provider.validateLease(newLease),
+            )
+
+            releaseCallback.complete(Unit)
+            assertEquals(
+                HostAdministrationSessionResult.Rejected(
+                    HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                ),
+                withTimeout(BARRIER_TIMEOUT_MILLIS) { requireNotNull(oldOperation).await() },
+            )
+        } finally {
+            releaseCallback.complete(Unit)
+            withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                oldOperation?.cancelAndJoin()
+            }
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun signOutInvalidatesAdministrationLeaseWithoutDeletingSavedHostRecord() = runBlocking {
+        val events = mutableListOf<String>()
+        val identity = RecordingOwnerIdentity(events, OWNER)
+        val transport = ScriptedOwnerAccessTransport(events)
+        val store = RecordingRemoteHostSessionStore(events)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = coordinator(identity, transport, store, scope)
+        val provider: HostAdministrationSessionProvider = coordinator
+
+        try {
+            coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+            coordinator.discoverOwnerMonitor()
+            coordinator.confirmHostActivation(
+                requireNotNull(coordinator.state.value.confirmation).confirmationId,
+            )
+            val lease = readyLease(provider.acquireLease())
+
+            coordinator.signOut()
+
+            assertEquals(
+                HostAdministrationSessionResult.Rejected(
+                    HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                ),
+                provider.validateLease(lease),
+            )
+            assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+        } finally {
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun ownerChangeInvalidatesAdministrationLeaseWithoutDeletingPreviousOwnersRecord() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(events)
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val lease = readyLease(provider.acquireLease())
+
+                identity.changeAccount(OwnerAccount("other-project", "other-uid", null))
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                    ),
+                    provider.validateLease(lease),
+                )
+                assertTrue(
+                    store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession,
+                )
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun coordinatorCloseInvalidatesAdministrationLeaseWithoutDeletingSavedHostRecord() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(events)
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val lease = readyLease(provider.acquireLease())
+
+                coordinator.close()
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                    ),
+                    provider.validateLease(lease),
+                )
+                assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun offlineStaleHostStateCannotAcquireAdministrationLeaseOrClearSavedCredential() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                installationResponses = listOf(
+                    response(200, INSTALLATION),
+                    OwnerAccessTransportResult.NetworkFailure,
+                ),
+            )
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                val confirmation = requireNotNull(coordinator.state.value.confirmation)
+                coordinator.confirmHostActivation(confirmation.confirmationId)
+                coordinator.initialize()
+
+                assertEquals(
+                    RemoteHostPhase.PREVIOUSLY_ACTIVE_OFFLINE_STALE,
+                    coordinator.state.value.phase,
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.HOST_NOT_ACTIVE,
+                    ),
+                    provider.acquireLease(),
+                )
+                assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun realSupportStoreStatesBlockHostActivationAndRecoveryWithoutModifyingSupportRecord() =
+        runBlocking {
+            listOf(
+                "attempt",
+                "pending",
+                "approved",
+                "corrupt",
+                "key-unavailable",
+            ).forEach { supportState ->
+                listOf(false, true).forEach { recoveryFlow ->
+                    val events = mutableListOf<String>()
+                    val identity = RecordingOwnerIdentity(events, OWNER)
+                    val transport = ScriptedOwnerAccessTransport(events)
+                    val hostStore = RecordingRemoteHostSessionStore(events)
+                    val pendingAttempt = if (recoveryFlow) {
+                        hostStore.delegate.beginAttempt(REMOTE_CONTEXT, generation("0"))
+                            as RemoteHostSessionWriteResult.PendingAttemptStarted
+                    } else {
+                        null
+                    }
+                    val supportFile = MemoryAtomicRemoteHostFile()
+                    val supportKeys = JceTestKeyProvider()
+                    val supportStore = PersistentRemoteSupportSessionStore(
+                        file = supportFile,
+                        keys = supportKeys,
+                        ioDispatcher = Dispatchers.Unconfined,
+                    )
+                    seedSupportState(supportState, supportStore, supportFile, supportKeys)
+                    val originalSupportBytes = supportFile.snapshot()
+                    val supportWritesBefore = supportFile.writeCount
+                    val supportDeletesBefore = supportFile.deleteCount
+                    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+                    val guard = RemoteRoleGuard(
+                        hostPresence = { hostStore.presence() },
+                        supportPresence = { supportStore.presence() },
+                    )
+                    val coordinator = coordinator(identity, transport, hostStore, scope, guard)
+
+                    try {
+                        coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                        if (recoveryFlow) {
+                            coordinator.initialize()
+                            coordinator.reauthenticate(SecretValue.of("synthetic-google-id-token"))
+                        }
+                        coordinator.discoverOwnerMonitor()
+                        val confirmation = requireNotNull(coordinator.state.value.confirmation)
+
+                        coordinator.confirmHostActivation(confirmation.confirmationId)
+
+                        if (recoveryFlow) {
+                            assertEquals(
+                                "Support state '$supportState' must block host recovery",
+                                0,
+                                hostStore.beginRecoveryAttemptCalls,
+                            )
+                            assertEquals(
+                                RemoteHostSessionLoad.PendingAttempt(
+                                    requireNotNull(pendingAttempt).attemptId,
+                                    generation("0"),
+                                ),
+                                hostStore.delegate.load(REMOTE_CONTEXT),
+                            )
+                        } else {
+                            assertEquals(
+                                "Support state '$supportState' must block host activation",
+                                0,
+                                hostStore.beginAttemptCalls,
+                            )
+                            assertEquals(
+                                RemoteHostSessionLoad.Empty,
+                                hostStore.delegate.load(REMOTE_CONTEXT),
+                            )
+                        }
+                        assertEquals(0, transport.activationPostCount)
+                        assertEquals(
+                            RemoteHostPhase.RECOVERABLE_ERROR,
+                            coordinator.state.value.phase,
+                        )
+                        assertEquals(
+                            originalSupportBytes.toList(),
+                            supportFile.snapshot().toList(),
+                        )
+                        assertEquals(supportWritesBefore, supportFile.writeCount)
+                        assertEquals(supportDeletesBefore, supportFile.deleteCount)
+                    } finally {
+                        coordinator.close()
+                        scope.cancel()
+                    }
+                }
+            }
+        }
+
+    @Test
+    fun unavailableSupportPresenceBlocksHostActivationAndRecoveryFailClosedWithoutHttpOrDeletion() =
+        runBlocking {
+            listOf(false, true).forEach { recoveryFlow ->
+                val events = mutableListOf<String>()
+                val identity = RecordingOwnerIdentity(events, OWNER)
+                val transport = ScriptedOwnerAccessTransport(events)
+                val hostFile = MemoryAtomicRemoteHostFile()
+                val hostStore = RecordingRemoteHostSessionStore(
+                    events = events,
+                    delegate = persistentStore(hostFile),
+                )
+                val pendingAttempt = if (recoveryFlow) {
+                    hostStore.delegate.beginAttempt(REMOTE_CONTEXT, generation("0"))
+                        as RemoteHostSessionWriteResult.PendingAttemptStarted
+                } else {
+                    null
+                }
+                val supportFile = MemoryAtomicRemoteHostFile().apply {
+                    nextReadFailure = IOException("synthetic support presence read failure")
+                }
+                val supportStore = PersistentRemoteSupportSessionStore(
+                    file = supportFile,
+                    keys = JceTestKeyProvider(),
+                    ioDispatcher = Dispatchers.Unconfined,
+                )
+                assertEquals(
+                    RemoteSessionPresence.Unavailable(
+                        RemoteSupportSessionProblem.PERSISTENCE_FAILURE,
+                    ),
+                    supportStore.presence(),
+                )
+                val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+                val guard = RemoteRoleGuard(
+                    hostPresence = { hostStore.presence() },
+                    supportPresence = { supportStore.presence() },
+                )
+                val coordinator = coordinator(identity, transport, hostStore, scope, guard)
+
+                try {
+                    coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                    if (recoveryFlow) {
+                        coordinator.initialize()
+                        coordinator.reauthenticate(SecretValue.of("synthetic-google-id-token"))
+                    }
+                    coordinator.discoverOwnerMonitor()
+                    val confirmation = requireNotNull(coordinator.state.value.confirmation)
+
+                    coordinator.confirmHostActivation(confirmation.confirmationId)
+
+                    if (recoveryFlow) {
+                        assertEquals(0, hostStore.beginRecoveryAttemptCalls)
+                        assertEquals(
+                            RemoteHostSessionLoad.PendingAttempt(
+                                requireNotNull(pendingAttempt).attemptId,
+                                generation("0"),
+                            ),
+                            hostStore.delegate.load(REMOTE_CONTEXT),
+                        )
+                    } else {
+                        assertEquals(0, hostStore.beginAttemptCalls)
+                        assertEquals(
+                            RemoteHostSessionLoad.Empty,
+                            hostStore.delegate.load(REMOTE_CONTEXT),
+                        )
+                    }
+                    assertEquals(0, transport.activationPostCount)
+                    assertEquals(RemoteHostPhase.RECOVERABLE_ERROR, coordinator.state.value.phase)
+                    assertEquals(0, hostFile.deleteCount)
+                    assertEquals(0, supportFile.deleteCount)
+                } finally {
+                    coordinator.close()
+                    scope.cancel()
+                }
+            }
+        }
+
+    @Test
+    fun originChangeInvalidatesAdministrationLeaseWithoutDeletingSavedHostRecord() = runBlocking {
+        val events = mutableListOf<String>()
+        val identity = RecordingOwnerIdentity(events, OWNER)
+        val transport = ScriptedOwnerAccessTransport(
+            events = events,
+            installationResponses = listOf(
+                response(200, INSTALLATION),
+                response(200, INSTALLATION),
+            ),
+        )
+        val store = RecordingRemoteHostSessionStore(events)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = coordinator(identity, transport, store, scope)
+        val provider: HostAdministrationSessionProvider = coordinator
+
+        try {
+            coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+            coordinator.discoverOwnerMonitor()
+            coordinator.confirmHostActivation(
+                requireNotNull(coordinator.state.value.confirmation).confirmationId,
+            )
+            val firstLease = readyLease(provider.acquireLease())
+
+            transport.origin = "https://other.example.test"
+
+            assertEquals(
+                HostAdministrationSessionResult.Rejected(
+                    HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                ),
+                provider.validateLease(firstLease),
+            )
+
+            transport.origin = ORIGIN
+            coordinator.initialize()
+            val secondLease = readyLease(provider.acquireLease())
+            transport.origin = "https://other.example.test"
+            var callbackCount = 0
+
+            val operationResult = provider.withValidatedLease(secondLease) {
+                callbackCount += 1
+                "must-not-run"
+            }
+
+            assertEquals(
+                HostAdministrationSessionResult.Rejected(
+                    HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                ),
+                operationResult,
+            )
+            assertEquals(0, callbackCount)
+            assertTrue(store.delegate.load(REMOTE_CONTEXT) is RemoteHostSessionLoad.ActiveSession)
+        } finally {
+            coordinator.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun revalidateAdministrationSessionDoesNotClearNewerAuthorizationRejectionDuringStoreLoad() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                installationResponses = listOf(
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                ),
+            )
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+            val postInitLoadStarted = CompletableDeferred<Unit>()
+            val releasePostInitLoad = CompletableDeferred<Unit>()
+            var revalidation: kotlinx.coroutines.Deferred<HostAdministrationSessionResult<Unit>>? =
+                null
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+
+                val targetPostInitLoad = store.loadCalls + 2
+                store.onLoad = { callNumber ->
+                    if (callNumber == targetPostInitLoad) {
+                        postInitLoadStarted.complete(Unit)
+                        releasePostInitLoad.await()
+                    }
+                }
+
+                revalidation = async(start = CoroutineStart.UNDISPATCHED) {
+                    provider.revalidateAdministrationSession()
+                }
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    postInitLoadStarted.await()
+                }
+
+                val newerLease = readyLease(provider.acquireLease())
+                provider.invalidateLease(
+                    newerLease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+
+                releasePostInitLoad.complete(Unit)
+                val revalidationResult = withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    revalidation.await()
+                }
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    revalidationResult,
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+            } finally {
+                releasePostInitLoad.complete(Unit)
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    revalidation?.cancelAndJoin()
+                }
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun revalidateAdministrationSessionReturnsLeaseInvalidatedWhenClosedBeforeOrDuringRevalidation() =
+        runBlocking {
+            listOf(1, 2).forEach { loadOffsetToClose ->
+                val events = mutableListOf<String>()
+                val identity = RecordingOwnerIdentity(events, OWNER)
+                val transport = ScriptedOwnerAccessTransport(
+                    events = events,
+                    installationResponses = listOf(
+                        response(200, INSTALLATION),
+                        response(200, INSTALLATION),
+                    ),
+                )
+                val store = RecordingRemoteHostSessionStore(events)
+                val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+                val coordinator = coordinator(identity, transport, store, scope)
+                val provider: HostAdministrationSessionProvider = coordinator
+                val loadStarted = CompletableDeferred<Unit>()
+                val releaseLoad = CompletableDeferred<Unit>()
+                var revalidation:
+                    kotlinx.coroutines.Deferred<HostAdministrationSessionResult<Unit>>? = null
+
+                try {
+                    coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                    coordinator.discoverOwnerMonitor()
+                    coordinator.confirmHostActivation(
+                        requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                    )
+                    val lease = readyLease(provider.acquireLease())
+                    provider.invalidateLease(
+                        lease,
+                        HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                    )
+
+                    val targetLoad = store.loadCalls + loadOffsetToClose
+                    store.onLoad = { callNumber ->
+                        if (callNumber == targetLoad) {
+                            loadStarted.complete(Unit)
+                            releaseLoad.await()
+                        }
+                    }
+
+                    revalidation = async(start = CoroutineStart.UNDISPATCHED) {
+                        provider.revalidateAdministrationSession()
+                    }
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                        loadStarted.await()
+                    }
+
+                    coordinator.close()
+                    releaseLoad.complete(Unit)
+
+                    assertEquals(
+                        "Expected LEASE_INVALIDATED when closed at load offset $loadOffsetToClose",
+                        HostAdministrationSessionResult.Rejected(
+                            HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                        ),
+                        withTimeout(BARRIER_TIMEOUT_MILLIS) { revalidation.await() },
+                    )
+                    assertEquals(
+                        HostAdministrationSessionResult.Rejected(
+                            HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                        ),
+                        provider.revalidateAdministrationSession(),
+                    )
+                } finally {
+                    releaseLoad.complete(Unit)
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                        revalidation?.cancelAndJoin()
+                    }
+                    coordinator.close()
+                    scope.cancel()
+                }
+            }
+        }
+
+    @Test
+    fun accountSwitchDuringRevalidateAdministrationSessionDoesNotClearEitherOwnersRejection() =
+        runBlocking {
+            val ownerA = OWNER
+            val ownerB = OwnerAccount("other-project", "other-uid", "Owner B")
+            val ownerAContext = REMOTE_CONTEXT
+            val ownerAActivation = hostActivation(
+                installationId = "installation-opaque",
+                generation = "1",
+                accessToken = ACTIVATION_PAT,
+                owner = ownerA,
+            )
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, ownerB)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                ownerResponses = listOf(response(200, EMPTY_OWNER_MONITOR)),
+                activationResponses = listOf(
+                    response(201, activationFixture("installation-owner-b", "1", NEW_PAT)),
+                ),
+                installationResponses = listOf(
+                    response(200, installationFixture("installation-owner-b", "1")),
+                    response(200, installationFixture("installation-owner-b", "1")),
+                ),
+            )
+            val multiOwnerStore = object : RemoteHostSessionStore {
+                val loads = AtomicInteger()
+                var onLoad: (suspend (Int, RemoteHostOwnerContext) -> Unit)? = null
+                private val byOwner = mutableMapOf(
+                    ownerAContext to ownerAActivation,
+                )
+                private val delegate = persistentStore()
+
+                override suspend fun load(
+                    expectedContext: RemoteHostOwnerContext,
+                ): RemoteHostSessionLoad {
+                    val call = loads.incrementAndGet()
+                    onLoad?.invoke(call, expectedContext)
+                    val stored = byOwner[expectedContext]
+                    return if (stored != null) {
+                        RemoteHostSessionLoad.ActiveSession(stored)
+                    } else {
+                        delegate.load(expectedContext)
+                    }
+                }
+
+                override suspend fun presence(): RemoteSessionPresence = delegate.presence()
+
+                override suspend fun beginAttempt(
+                    expectedContext: RemoteHostOwnerContext,
+                    expectedGeneration: OwnerGeneration,
+                ): RemoteHostSessionWriteResult =
+                    delegate.beginAttempt(expectedContext, expectedGeneration)
+
+                override suspend fun beginRecoveryAttempt(
+                    expectedContext: RemoteHostOwnerContext,
+                    previousAttemptId: RemoteHostAttemptId,
+                    expectedGeneration: OwnerGeneration,
+                ): RemoteHostSessionWriteResult =
+                    delegate.beginRecoveryAttempt(
+                        expectedContext,
+                        previousAttemptId,
+                        expectedGeneration,
+                    )
+
+                override suspend fun commitAttempt(
+                    expectedContext: RemoteHostOwnerContext,
+                    attemptId: RemoteHostAttemptId,
+                    activation: HostActivation,
+                ): RemoteHostSessionWriteResult {
+                    val result = delegate.commitAttempt(expectedContext, attemptId, activation)
+                    if (result == RemoteHostSessionWriteResult.ActiveSessionCommitted) {
+                        byOwner[expectedContext] = activation
+                    }
+                    return result
+                }
+
+                override suspend fun clearPendingAttempt(
+                    expectedContext: RemoteHostOwnerContext,
+                    attemptId: RemoteHostAttemptId,
+                ): RemoteHostSessionWriteResult =
+                    delegate.clearPendingAttempt(expectedContext, attemptId)
+
+                override suspend fun clearActiveSession(
+                    expectedContext: ExpectedHostAccessContext,
+                ): RemoteHostSessionWriteResult = delegate.clearActiveSession(expectedContext)
+            }
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, multiOwnerStore, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+            val ownerALoadStarted = CompletableDeferred<Unit>()
+            val releaseOwnerALoad = CompletableDeferred<Unit>()
+            var ownerARevalidation:
+                kotlinx.coroutines.Deferred<HostAdministrationSessionResult<Unit>>? = null
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val ownerBLease = readyLease(provider.acquireLease())
+                provider.invalidateLease(
+                    ownerBLease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+
+                identity.changeAccount(ownerA)
+                multiOwnerStore.onLoad = { _, context ->
+                    if (context == ownerAContext) {
+                        ownerALoadStarted.complete(Unit)
+                        releaseOwnerALoad.await()
+                    }
+                }
+                ownerARevalidation = async(start = CoroutineStart.UNDISPATCHED) {
+                    provider.revalidateAdministrationSession()
+                }
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    ownerALoadStarted.await()
+                }
+
+                identity.changeAccount(ownerB)
+                coordinator.initialize()
+                assertEquals(RemoteHostPhase.ACTIVE_CONFIRMED, coordinator.state.value.phase)
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+
+                releaseOwnerALoad.complete(Unit)
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.HOST_NOT_ACTIVE,
+                    ),
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) { ownerARevalidation.await() },
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+            } finally {
+                releaseOwnerALoad.complete(Unit)
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    ownerARevalidation?.cancelAndJoin()
+                }
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun freshConfirmedHostActivationClearsPriorAuthorizationRejectionWhileKnownNoWriteAndInitializeDoNot() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                ownerResponses = listOf(
+                    response(200, EMPTY_OWNER_MONITOR),
+                    response(200, ownerMonitorFixture("1", "installation-opaque")),
+                    response(200, ownerMonitorFixture("1", "installation-opaque")),
+                ),
+                activationResponses = listOf(
+                    response(201, ACTIVATION),
+                    response(401, """{"code":"access_unauthenticated"}"""),
+                    response(201, activationFixture("host-2", "2", NEW_PAT)),
+                ),
+                installationResponses = listOf(
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                    response(200, installationFixture("host-2", "2")),
+                ),
+            )
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val host1Lease = readyLease(provider.acquireLease())
+                provider.invalidateLease(
+                    host1Lease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+
+                coordinator.initialize()
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                    hostReplacementWarningConfirmed = true,
+                )
+                coordinator.initialize()
+                assertEquals(RemoteHostPhase.ACTIVE_CONFIRMED, coordinator.state.value.phase)
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                    hostReplacementWarningConfirmed = true,
+                )
+                assertEquals(RemoteHostPhase.ACTIVE_CONFIRMED, coordinator.state.value.phase)
+
+                val host2Lease = readyLease(provider.acquireLease())
+                val tokenResult = provider.withValidatedLease(host2Lease) { pairingLease ->
+                    pairingLease.accessToken.reveal()
+                }
+                assertEquals(HostAdministrationSessionResult.Ready(NEW_PAT), tokenResult)
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun stateObserverReactingImmediatelyToFreshActiveConfirmedHostAcquiresLeaseAtomically() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                ownerResponses = listOf(
+                    response(200, EMPTY_OWNER_MONITOR),
+                    response(200, ownerMonitorFixture("1", "installation-opaque")),
+                ),
+                activationResponses = listOf(
+                    response(201, ACTIVATION),
+                    response(201, activationFixture("host-2", "2", NEW_PAT)),
+                ),
+                installationResponses = listOf(
+                    response(200, INSTALLATION),
+                    response(200, installationFixture("host-2", "2")),
+                ),
+            )
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+            val observerLeaseResult =
+                CompletableDeferred<HostAdministrationSessionResult<HostAdministrationLease>>()
+            var observerJob: Job? = null
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val host1Lease = readyLease(provider.acquireLease())
+                provider.invalidateLease(
+                    host1Lease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+
+                coordinator.discoverOwnerMonitor()
+                val host2Confirmation = requireNotNull(coordinator.state.value.confirmation)
+
+                observerJob = scope.launch(Dispatchers.Unconfined) {
+                    coordinator.state.collect { viewState ->
+                        if (
+                            viewState.phase == RemoteHostPhase.ACTIVE_CONFIRMED &&
+                            viewState.verifiedHost?.installationId == "host-2" &&
+                            !observerLeaseResult.isCompleted
+                        ) {
+                            observerLeaseResult.complete(provider.acquireLease())
+                        }
+                    }
+                }
+
+                coordinator.confirmHostActivation(
+                    host2Confirmation.confirmationId,
+                    hostReplacementWarningConfirmed = true,
+                )
+
+                val observedLease = readyLease(
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) { observerLeaseResult.await() },
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Ready(NEW_PAT),
+                    provider.withValidatedLease(observedLease) { pairingLease ->
+                        pairingLease.accessToken.reveal()
+                    },
+                )
+            } finally {
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    observerJob?.cancelAndJoin()
+                }
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun closedCoordinatorAfterAuthorizationRejectionReturnsLeaseInvalidatedForAllLeaseOperations() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(events)
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val lease = readyLease(provider.acquireLease())
+                provider.invalidateLease(
+                    lease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.acquireLease(),
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    provider.validateLease(lease),
+                )
+
+                coordinator.close()
+                var callbackCount = 0
+
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                    ),
+                    provider.validateLease(lease),
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                    ),
+                    provider.acquireLease(),
+                )
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                    ),
+                    provider.withValidatedLease(lease) {
+                        callbackCount += 1
+                        "must-not-run"
+                    },
+                )
+                assertEquals(0, callbackCount)
+            } finally {
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun inFlightAuthorizationRejectionDuringValidateLeaseAndWithValidatedLeaseReturnsAuthorizationRejected() =
+        runBlocking {
+            val events = mutableListOf<String>()
+            val identity = RecordingOwnerIdentity(events, OWNER)
+            val transport = ScriptedOwnerAccessTransport(
+                events = events,
+                installationResponses = listOf(
+                    response(200, INSTALLATION),
+                    response(200, INSTALLATION),
+                ),
+            )
+            val store = RecordingRemoteHostSessionStore(events)
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            val coordinator = coordinator(identity, transport, store, scope)
+            val provider: HostAdministrationSessionProvider = coordinator
+            val firstLoadStarted = CompletableDeferred<Unit>()
+            val releaseFirstLoad = CompletableDeferred<Unit>()
+            val secondLoadStarted = CompletableDeferred<Unit>()
+            val releaseSecondLoad = CompletableDeferred<Unit>()
+            var validationJob:
+                kotlinx.coroutines.Deferred<HostAdministrationSessionResult<Unit>>? = null
+            var operationJob:
+                kotlinx.coroutines.Deferred<HostAdministrationSessionResult<String>>? = null
+
+            try {
+                coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                coordinator.discoverOwnerMonitor()
+                coordinator.confirmHostActivation(
+                    requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                )
+                val firstLease = readyLease(provider.acquireLease())
+
+                val firstTargetLoad = store.loadCalls + 1
+                store.onLoad = { callNumber ->
+                    if (callNumber == firstTargetLoad) {
+                        firstLoadStarted.complete(Unit)
+                        releaseFirstLoad.await()
+                    }
+                }
+                validationJob = async(start = CoroutineStart.UNDISPATCHED) {
+                    provider.validateLease(firstLease)
+                }
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    firstLoadStarted.await()
+                }
+                provider.invalidateLease(
+                    firstLease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+                releaseFirstLoad.complete(Unit)
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) { validationJob.await() },
+                )
+
+                store.onLoad = null
+                assertEquals(
+                    HostAdministrationSessionResult.Ready(Unit),
+                    provider.revalidateAdministrationSession(),
+                )
+                val secondLease = readyLease(provider.acquireLease())
+                val secondTargetLoad = store.loadCalls + 1
+                var callbackCount = 0
+                store.onLoad = { callNumber ->
+                    if (callNumber == secondTargetLoad) {
+                        secondLoadStarted.complete(Unit)
+                        releaseSecondLoad.await()
+                    }
+                }
+                operationJob = async(start = CoroutineStart.UNDISPATCHED) {
+                    provider.withValidatedLease(secondLease) {
+                        callbackCount += 1
+                        "must-not-run"
+                    }
+                }
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    secondLoadStarted.await()
+                }
+                provider.invalidateLease(
+                    secondLease,
+                    HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED,
+                )
+                releaseSecondLoad.complete(Unit)
+                assertEquals(
+                    HostAdministrationSessionResult.Rejected(
+                        HostAdministrationSessionFailure.AUTHORIZATION_REJECTED,
+                    ),
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) { operationJob.await() },
+                )
+                assertEquals(0, callbackCount)
+            } finally {
+                releaseFirstLoad.complete(Unit)
+                releaseSecondLoad.complete(Unit)
+                withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                    validationJob?.cancelAndJoin()
+                    operationJob?.cancelAndJoin()
+                }
+                coordinator.close()
+                scope.cancel()
+            }
+        }
+
+    @Test
+    fun withValidatedLeaseRejectsBeforeOperationWhenAccountOriginOrCoordinatorChangesInFlight() =
+        runBlocking {
+            listOf("account", "origin", "close").forEach { mutation ->
+                val events = mutableListOf<String>()
+                val identity = RecordingOwnerIdentity(events, OWNER)
+                val transport = ScriptedOwnerAccessTransport(events)
+                val store = RecordingRemoteHostSessionStore(events)
+                val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+                val coordinator = coordinator(identity, transport, store, scope)
+                val provider: HostAdministrationSessionProvider = coordinator
+                val loadStarted = CompletableDeferred<Unit>()
+                val releaseLoad = CompletableDeferred<Unit>()
+                var operationJob:
+                    kotlinx.coroutines.Deferred<HostAdministrationSessionResult<String>>? = null
+
+                try {
+                    coordinator.signIn(SecretValue.of("synthetic-google-id-token"))
+                    coordinator.discoverOwnerMonitor()
+                    coordinator.confirmHostActivation(
+                        requireNotNull(coordinator.state.value.confirmation).confirmationId,
+                    )
+                    val lease = readyLease(provider.acquireLease())
+                    val targetLoad = store.loadCalls + 1
+                    var callbackCount = 0
+                    store.onLoad = { callNumber ->
+                        if (callNumber == targetLoad) {
+                            loadStarted.complete(Unit)
+                            releaseLoad.await()
+                        }
+                    }
+
+                    operationJob = async(start = CoroutineStart.UNDISPATCHED) {
+                        provider.withValidatedLease(lease) {
+                            callbackCount += 1
+                            "must-not-run"
+                        }
+                    }
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                        loadStarted.await()
+                    }
+
+                    when (mutation) {
+                        "account" -> identity.changeAccount(
+                            OwnerAccount("other-project", "other-uid", null),
+                        )
+
+                        "origin" -> transport.origin = "https://other.example.test"
+                        "close" -> coordinator.close()
+                    }
+                    releaseLoad.complete(Unit)
+
+                    assertEquals(
+                        "Expected LEASE_INVALIDATED for in-flight $mutation change",
+                        HostAdministrationSessionResult.Rejected(
+                            HostAdministrationSessionFailure.LEASE_INVALIDATED,
+                        ),
+                        withTimeout(BARRIER_TIMEOUT_MILLIS) { operationJob.await() },
+                    )
+                    assertEquals(0, callbackCount)
+                } finally {
+                    releaseLoad.complete(Unit)
+                    withTimeout(BARRIER_TIMEOUT_MILLIS) {
+                        operationJob?.cancelAndJoin()
+                    }
+                    coordinator.close()
+                    scope.cancel()
+                }
+            }
+        }
+
+    @Test
     fun loginAndDiscoveryNeverActivateUntilBoundConfirmationIsExplicitlyAccepted() = runBlocking {
         val events = mutableListOf<String>()
         val owner = OwnerAccount("firebase-project", "firebase-uid", "Owner")
@@ -64,6 +1623,7 @@ class RemoteHostCoordinatorTest {
             identity = identity,
             ownerAccessClient = OwnerAccessClient(transport),
             sessionStore = store,
+            roleGuard = testRoleGuard(store),
             parentScope = scope,
             confirmationId = { "confirmation-0001" },
         )
@@ -952,11 +2512,13 @@ class RemoteHostCoordinatorTest {
         val events = mutableListOf<String>()
         val unexpected = IllegalStateException("synthetic-private-detail")
         val transport = ScriptedOwnerAccessTransport(events)
+        val store = RecordingRemoteHostSessionStore(events)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val coordinator = RemoteHostCoordinator(
             identity = RecordingOwnerIdentity(events, OWNER),
             ownerAccessClient = OwnerAccessClient(transport),
-            sessionStore = RecordingRemoteHostSessionStore(events),
+            sessionStore = store,
+            roleGuard = testRoleGuard(store),
             parentScope = scope,
             confirmationId = { throw unexpected },
         )
@@ -1806,6 +3368,12 @@ class RemoteHostCoordinatorTest {
         }
     }
 
+    private fun readyLease(
+        result: HostAdministrationSessionResult<HostAdministrationLease>,
+    ): HostAdministrationLease =
+        (result as? HostAdministrationSessionResult.Ready)?.value
+            ?: throw AssertionError("Expected an administration lease, got $result")
+
     private class RecordingOwnerIdentity(
         private val events: MutableList<String>,
         private val signedInAccount: OwnerAccount,
@@ -1895,16 +3463,31 @@ class RemoteHostCoordinatorTest {
 
     private class RecordingRemoteHostSessionStore(
         private val events: MutableList<String>,
-        private val delegate: RemoteHostSessionStore = persistentStore(),
+        val delegate: RemoteHostSessionStore = persistentStore(),
         private val beforeCommit: suspend () -> Unit = {},
     ) : RemoteHostSessionStore {
-        override suspend fun load(expectedContext: RemoteHostOwnerContext): RemoteHostSessionLoad =
-            delegate.load(expectedContext)
+        var loadOverride: RemoteHostSessionLoad? = null
+        var loadCalls = 0
+            private set
+        var onLoad: (suspend (Int) -> Unit)? = null
+        var beginAttemptCalls = 0
+            private set
+        var beginRecoveryAttemptCalls = 0
+            private set
+
+        override suspend fun load(expectedContext: RemoteHostOwnerContext): RemoteHostSessionLoad {
+            val callNumber = ++loadCalls
+            onLoad?.invoke(callNumber)
+            return loadOverride ?: delegate.load(expectedContext)
+        }
+
+        override suspend fun presence(): RemoteSessionPresence = delegate.presence()
 
         override suspend fun beginAttempt(
             expectedContext: RemoteHostOwnerContext,
             expectedGeneration: OwnerGeneration,
         ): RemoteHostSessionWriteResult {
+            beginAttemptCalls += 1
             val result = delegate.beginAttempt(expectedContext, expectedGeneration)
             if (result is RemoteHostSessionWriteResult.PendingAttemptStarted) {
                 assertEquals(
@@ -1921,6 +3504,7 @@ class RemoteHostCoordinatorTest {
             previousAttemptId: RemoteHostAttemptId,
             expectedGeneration: OwnerGeneration,
         ): RemoteHostSessionWriteResult {
+            beginRecoveryAttemptCalls += 1
             val result = delegate.beginRecoveryAttempt(
                 expectedContext,
                 previousAttemptId,
@@ -1964,8 +3548,13 @@ class RemoteHostCoordinatorTest {
     }
 
     private class MemoryAtomicRemoteHostFile : RemoteHostAtomicFile {
-        private var record: ByteArray? = null
+        @Volatile
+        var record: ByteArray? = null
+        @Volatile
+        var nextReadFailure: IOException? = null
         var writeCount = 0
+            private set
+        var deleteCount = 0
             private set
         var failOnWrite: Int? = null
         var failureOnWrite: RuntimeException? = null
@@ -1974,6 +3563,9 @@ class RemoteHostCoordinatorTest {
         var releaseBlockedWrite: CountDownLatch? = null
 
         override fun readRecord(maximumBytes: Int): ByteArray? {
+            nextReadFailure?.let { failure ->
+                throw failure
+            }
             val current = record ?: return null
             return current.copyOf(minOf(current.size, maximumBytes))
         }
@@ -1991,14 +3583,18 @@ class RemoteHostCoordinatorTest {
         }
 
         override fun deleteRecord() {
+            deleteCount += 1
             record = null
         }
+
+        fun snapshot(): ByteArray = requireNotNull(record).copyOf()
     }
 
     private class JceTestKeyProvider : RemoteHostKeyProvider {
         private val key: SecretKey = SecretKeySpec(ByteArray(32) { it.toByte() }, "AES")
+        var keyAvailable = true
 
-        override fun existingKey(): SecretKey? = key
+        override fun existingKey(): SecretKey? = key.takeIf { keyAvailable }
 
         override fun keyForNewRecord(): SecretKey = key
     }
@@ -2161,12 +3757,14 @@ class RemoteHostCoordinatorTest {
         transport: ScriptedOwnerAccessTransport,
         store: RemoteHostSessionStore,
         scope: CoroutineScope,
+        roleGuard: RemoteRoleGuard = testRoleGuard(store),
     ): RemoteHostCoordinator {
         val confirmationSequence = AtomicInteger()
         return RemoteHostCoordinator(
             identity = identity,
             ownerAccessClient = OwnerAccessClient(transport),
             sessionStore = store,
+            roleGuard = roleGuard,
             parentScope = scope,
             confirmationId = {
                 "confirmation-${confirmationSequence.incrementAndGet()}"
@@ -2174,8 +3772,102 @@ class RemoteHostCoordinatorTest {
         )
     }
 
+    private fun testRoleGuard(store: RemoteHostSessionStore): RemoteRoleGuard =
+        RemoteRoleGuard(
+            hostPresence = { store.presence() },
+            supportPresence = { RemoteSessionPresence.Absent },
+        )
+
     private fun generation(value: String): OwnerGeneration =
         requireNotNull(OwnerGeneration.parse(value))
+
+    private suspend fun seedSupportState(
+        supportState: String,
+        supportStore: PersistentRemoteSupportSessionStore,
+        supportFile: MemoryAtomicRemoteHostFile,
+        supportKeys: JceTestKeyProvider,
+    ) {
+        when (supportState) {
+            "attempt" -> {
+                assertTrue(
+                    supportStore.beginAttempt(ORIGIN) is
+                        RemoteSupportSessionWriteResult.AttemptStarted,
+                )
+            }
+
+            "pending" -> {
+                val attempt = (
+                    supportStore.beginAttempt(ORIGIN)
+                        as RemoteSupportSessionWriteResult.AttemptStarted
+                    ).record
+                assertTrue(
+                    supportStore.commitPending(
+                        origin = ORIGIN,
+                        attemptId = attempt.attemptId,
+                        candidate = PairingCandidateInstallation(
+                            origin = ORIGIN,
+                            requestId = "11111111-1111-4111-8111-111111111111",
+                            installationId = "22222222-2222-4222-8222-222222222222",
+                            requestExpiresAtMillis = 1_790_000_000_000L,
+                            accessToken = SecretValue.of("synthetic-support-pat"),
+                            status = "Pending",
+                        ),
+                    ) is RemoteSupportSessionWriteResult.Committed,
+                )
+            }
+
+            "approved" -> {
+                val attempt = (
+                    supportStore.beginAttempt(ORIGIN)
+                        as RemoteSupportSessionWriteResult.AttemptStarted
+                    ).record
+                val pending = (
+                    supportStore.commitPending(
+                        origin = ORIGIN,
+                        attemptId = attempt.attemptId,
+                        candidate = PairingCandidateInstallation(
+                            origin = ORIGIN,
+                            requestId = "11111111-1111-4111-8111-111111111111",
+                            installationId = "22222222-2222-4222-8222-222222222222",
+                            requestExpiresAtMillis = 1_790_000_000_000L,
+                            accessToken = SecretValue.of("synthetic-support-pat"),
+                            status = "Pending",
+                        ),
+                    ) as RemoteSupportSessionWriteResult.Committed
+                    ).record
+                assertTrue(
+                    supportStore.commitApproved(
+                        expectedRecord = pending,
+                        supportInstallation = PairingSupportInstallation(
+                            installationId = "22222222-2222-4222-8222-222222222222",
+                            monitorId = "44444444-4444-4444-8444-444444444444",
+                            membershipId = "55555555-5555-4555-8555-555555555555",
+                            role = "Support",
+                            status = "Active",
+                            monitorGeneration = generation("1"),
+                        ),
+                    ) is RemoteSupportSessionWriteResult.Committed,
+                )
+            }
+
+            "corrupt" -> {
+                supportFile.record = byteArrayOf(0x09, 0x08, 0x07, 0x06)
+            }
+
+            "key-unavailable" -> {
+                seedSupportState("approved", supportStore, supportFile, supportKeys)
+                supportKeys.keyAvailable = false
+                assertEquals(
+                    RemoteSupportSessionLoad.Unavailable(
+                        RemoteSupportSessionProblem.KEY_UNAVAILABLE,
+                    ),
+                    supportStore.load(ORIGIN),
+                )
+            }
+
+            else -> error("Unsupported synthetic support state: $supportState")
+        }
+    }
 
     private suspend fun seedActiveSession(
         store: RemoteHostSessionStore,
@@ -2195,6 +3887,7 @@ class RemoteHostCoordinatorTest {
 
     private companion object {
         const val ORIGIN = "https://api.example.test"
+        const val BARRIER_TIMEOUT_MILLIS = 5_000L
         val OWNER = OwnerAccount("firebase-project", "firebase-uid", "Owner")
         val REMOTE_CONTEXT = RemoteHostOwnerContext(OWNER, ORIGIN)
 
@@ -2220,6 +3913,7 @@ class RemoteHostCoordinatorTest {
             """{"data":{"monitor":null,"generation":"0","host":null,"requiresReference":true}}"""
         const val ACTIVATION =
             """{"data":{"monitorId":"monitor-opaque","installationId":"installation-opaque","membershipId":"membership-opaque","role":"Host","generation":"1","requiresReference":true,"accessToken":"synthetic-one-time-pat","createdAt":1790000000000}}"""
+        const val ACTIVATION_PAT = "synthetic-one-time-pat"
         const val INSTALLATION =
             """{"data":{"installationId":"installation-opaque","monitorId":"monitor-opaque","membershipId":"membership-opaque","role":"Host","status":"Active","monitorGeneration":"1"}}"""
         const val OLD_PAT = "synthetic-old-host-pat"
@@ -2242,16 +3936,20 @@ class RemoteHostCoordinatorTest {
             installationId: String,
             generation: String,
             accessToken: String,
+            monitorId: String = "monitor-opaque",
+            membershipId: String = "membership-opaque",
+            owner: OwnerAccount = OWNER,
+            origin: String = ORIGIN,
         ): HostActivation =
             HostActivation(
-                monitorId = "monitor-opaque",
+                monitorId = monitorId,
                 installationId = installationId,
-                membershipId = "membership-opaque",
+                membershipId = membershipId,
                 generation = requireNotNull(OwnerGeneration.parse(generation)),
                 accessToken = SecretValue.of(accessToken),
                 createdAtMillis = 1_790_000_000_000L,
-                owner = OWNER,
-                origin = ORIGIN,
+                owner = owner,
+                origin = origin,
             )
     }
 }

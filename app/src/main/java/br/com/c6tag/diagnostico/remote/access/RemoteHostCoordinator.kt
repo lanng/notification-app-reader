@@ -27,9 +27,10 @@ internal class RemoteHostCoordinator(
     private val identity: OwnerIdentity,
     private val ownerAccessClient: OwnerAccessClient,
     private val sessionStore: RemoteHostSessionStore,
+    private val roleGuard: RemoteRoleGuard,
     parentScope: CoroutineScope,
     private val confirmationId: () -> String = { java.util.UUID.randomUUID().toString() },
-) : AutoCloseable {
+) : AutoCloseable, HostAdministrationSessionProvider {
     private val coordinatorJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val coordinatorScope = CoroutineScope(parentScope.coroutineContext + coordinatorJob)
     private val operationEpoch = AtomicLong()
@@ -37,6 +38,10 @@ internal class RemoteHostCoordinator(
     private val lastObservedAccount = AtomicReference(identity.account.value)
     private val activeConfirmation = AtomicReference<ConfirmationBinding?>()
     private val reauthenticatedOwner = AtomicReference<OwnerKey?>()
+    private val validatedHostActivation = AtomicReference<ValidatedHostActivation?>()
+    private val administrationLease = AtomicReference<AdministrationLeaseBinding?>()
+    private val authorizationRejectedOwner = AtomicReference<OwnerOriginBinding?>()
+    private val administrationStateLock = Any()
     private val closed = AtomicBoolean()
     private val activationMutex = Mutex()
     private val mutableState = MutableStateFlow(
@@ -115,10 +120,21 @@ internal class RemoteHostCoordinator(
      */
     suspend fun initialize() {
         checkOpen()
-        val epoch = nextOperation()
+        initializeSession()
+    }
+
+    private suspend fun initializeSession() {
+        val epoch = synchronized(administrationStateLock) {
+            if (closed.get()) {
+                return
+            }
+            nextOperation()
+        }
         val context = currentContext()
         if (context == null) {
-            publishAccountNotReady(identity.account.value)
+            if (isEpochCurrent(epoch)) {
+                publishAccountNotReady(identity.account.value)
+            }
             return
         }
         if (ownerAccessClient.canonicalOrigin == null) {
@@ -133,7 +149,10 @@ internal class RemoteHostCoordinator(
             return
         }
 
-        mutableState.value = RemoteHostViewState(RemoteHostPhase.DISCOVERING)
+        publishIfCurrent(epoch, context, RemoteHostViewState(RemoteHostPhase.DISCOVERING))
+        if (!isCurrent(epoch, context)) {
+            return
+        }
         val loaded = loadSession(context, epoch)
         if (!isCurrent(epoch, context)) {
             return
@@ -190,7 +209,7 @@ internal class RemoteHostCoordinator(
             val accountAfter = identity.account.value
             lastObservedAccount.set(accountAfter)
             if (!sameOwner(accountBefore, accountAfter)) {
-                operationEpoch.incrementAndGet()
+                advanceOperationEpoch()
                 reauthenticatedOwner.set(null)
                 publishAccountNotReady(accountAfter)
                 return result.copy(outcome = IdentityOutcome.ACCOUNT_MISMATCH)
@@ -424,22 +443,38 @@ internal class RemoteHostCoordinator(
                 return
             }
 
-            val epoch = operationEpoch.incrementAndGet()
+            val epoch = advanceOperationEpoch()
             reauthenticatedOwner.set(null)
             mutableState.value = RemoteHostViewState(RemoteHostPhase.ACTIVATING)
 
             val beginResult = try {
-                if (binding.recoveryAttemptId == null) {
-                    sessionStore.beginAttempt(
-                        binding.context,
-                        binding.snapshot.generation,
-                    )
-                } else {
-                    sessionStore.beginRecoveryAttempt(
-                        expectedContext = binding.context,
-                        previousAttemptId = binding.recoveryAttemptId,
-                        expectedGeneration = binding.snapshot.generation,
-                    )
+                when (
+                    val guarded = if (binding.recoveryAttemptId == null) {
+                        roleGuard.beginHostAttempt {
+                            sessionStore.beginAttempt(
+                                binding.context,
+                                binding.snapshot.generation,
+                            )
+                        }
+                    } else {
+                        roleGuard.beginHostAttempt {
+                            sessionStore.beginRecoveryAttempt(
+                                expectedContext = binding.context,
+                                previousAttemptId = binding.recoveryAttemptId,
+                                expectedGeneration = binding.snapshot.generation,
+                            )
+                        }
+                    }
+                ) {
+                    is RemoteRoleGuardResult.Begun -> guarded.value
+                    is RemoteRoleGuardResult.Blocked -> {
+                        publishIfCurrent(
+                            epoch,
+                            binding.context,
+                            RemoteHostViewState(RemoteHostPhase.RECOVERABLE_ERROR),
+                        )
+                        return
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 settleCancelledPendingJournal(epoch, binding.context, cancelled)
@@ -580,7 +615,12 @@ internal class RemoteHostCoordinator(
                         if (!isCurrent(epoch, binding.context)) {
                             return
                         }
-                        validateSavedActivation(binding.context, activation, epoch)
+                        validateSavedActivation(
+                            context = binding.context,
+                            activation = activation,
+                            epoch = epoch,
+                            clearPriorAuthorizationRejection = true,
+                        )
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -685,11 +725,187 @@ internal class RemoteHostCoordinator(
         }
     }
 
+    override suspend fun acquireLease():
+        HostAdministrationSessionResult<HostAdministrationLease> {
+        val context: RemoteHostOwnerContext
+        val epoch: Long
+        val verified: ValidatedHostActivation
+        synchronized(administrationStateLock) {
+            if (closed.get()) {
+                return rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            }
+            val current = currentContext()
+                ?: return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            if (isAuthorizationRejected(current)) {
+                return rejected(HostAdministrationSessionFailure.AUTHORIZATION_REJECTED)
+            }
+            val currentEpoch = operationEpoch.get()
+            val currentVerified = validatedHostActivation.get()
+                ?: return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            if (!isValidatedHostCurrent(currentVerified, current, currentEpoch)) {
+                return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            }
+            context = current
+            epoch = currentEpoch
+            verified = currentVerified
+        }
+
+        val loaded = sessionStore.load(context)
+        val activation = (loaded as? RemoteHostSessionLoad.ActiveSession)?.activation
+        val lease = HostAdministrationLease.generated()
+        return synchronized(administrationStateLock) {
+            if (closed.get()) {
+                rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            } else if (isAuthorizationRejected(context)) {
+                rejected(HostAdministrationSessionFailure.AUTHORIZATION_REJECTED)
+            } else if (!isValidatedHostCurrent(verified, context, epoch)) {
+                rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            } else if (activation == null || !sameHostActivation(verified.activation, activation)) {
+                rejected(HostAdministrationSessionFailure.SESSION_UNAVAILABLE)
+            } else {
+                val binding = AdministrationLeaseBinding(
+                    lease = lease,
+                    context = context,
+                    epoch = epoch,
+                    activation = activation,
+                    pairingLease = PairingHostLease(
+                        origin = context.origin,
+                        monitorId = activation.monitorId,
+                        accessToken = activation.accessToken,
+                    ),
+                )
+                administrationLease.set(binding)
+                HostAdministrationSessionResult.Ready(lease)
+            }
+        }
+    }
+
+    override suspend fun validateLease(
+        lease: HostAdministrationLease,
+    ): HostAdministrationSessionResult<Unit> =
+        when (val result = validateLeaseBinding(lease)) {
+            is HostAdministrationSessionResult.Ready -> HostAdministrationSessionResult.Ready(Unit)
+            is HostAdministrationSessionResult.Rejected -> result
+        }
+
+    override suspend fun <T> withValidatedLease(
+        lease: HostAdministrationLease,
+        operation: suspend (PairingHostLease) -> T,
+    ): HostAdministrationSessionResult<T> {
+        val binding = when (val validation = validateLeaseBinding(lease)) {
+            is HostAdministrationSessionResult.Ready -> validation.value
+            is HostAdministrationSessionResult.Rejected -> return validation
+        }
+        val value = operation(binding.pairingLease)
+        return when (val validation = validateLease(lease)) {
+            is HostAdministrationSessionResult.Ready ->
+                HostAdministrationSessionResult.Ready(value)
+
+            is HostAdministrationSessionResult.Rejected -> validation
+        }
+    }
+
+    override fun invalidateLease(
+        lease: HostAdministrationLease,
+        reason: HostAdministrationSessionInvalidation,
+    ) {
+        synchronized(administrationStateLock) {
+            val binding = administrationLease.get()
+                ?.takeIf { current -> current.lease === lease }
+                ?: return
+            if (!isAdministrationLeaseCurrent(binding)) {
+                administrationLease.compareAndSet(binding, null)
+                return
+            }
+            when (reason) {
+                HostAdministrationSessionInvalidation.ADMIN_AUTHORIZATION_REJECTED -> {
+                    if (administrationLease.compareAndSet(binding, null)) {
+                        authorizationRejectedOwner.set(
+                            OwnerOriginBinding(
+                                owner = binding.context.owner.toOwnerKey(),
+                                origin = binding.context.origin,
+                                rejectedEpoch = binding.epoch,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun revalidateAdministrationSession():
+        HostAdministrationSessionResult<Unit> {
+        val initialContext: RemoteHostOwnerContext
+        val epochBefore: Long
+        synchronized(administrationStateLock) {
+            if (closed.get()) {
+                return rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            }
+            initialContext = currentContext()
+                ?: return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            epochBefore = operationEpoch.get()
+        }
+
+        initializeSession()
+
+        val revalidatedContext: RemoteHostOwnerContext
+        val epoch: Long
+        val verified: ValidatedHostActivation
+        synchronized(administrationStateLock) {
+            if (closed.get()) {
+                return rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            }
+            val current = currentContext()
+                ?: return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            if (!sameOwnerOrigin(initialContext, current)) {
+                return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            }
+            val currentEpoch = operationEpoch.get()
+            val currentVerified = validatedHostActivation.get()
+                ?: return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            if (
+                currentVerified.epoch <= epochBefore ||
+                !isValidatedHostCurrent(currentVerified, current, currentEpoch)
+            ) {
+                return rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            }
+            revalidatedContext = current
+            epoch = currentEpoch
+            verified = currentVerified
+        }
+
+        val loaded = sessionStore.load(revalidatedContext)
+        val activation = (loaded as? RemoteHostSessionLoad.ActiveSession)?.activation
+        return synchronized(administrationStateLock) {
+            if (closed.get()) {
+                rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            } else if (!isValidatedHostCurrent(verified, revalidatedContext, epoch)) {
+                rejected(HostAdministrationSessionFailure.HOST_NOT_ACTIVE)
+            } else if (activation == null || !sameHostActivation(verified.activation, activation)) {
+                rejected(HostAdministrationSessionFailure.SESSION_UNAVAILABLE)
+            } else {
+                val rejectedBinding = authorizationRejectedOwner.get()
+                    ?.takeIf { current ->
+                        current.owner == revalidatedContext.owner.toOwnerKey() &&
+                            current.origin == revalidatedContext.origin
+                    }
+                if (rejectedBinding != null && rejectedBinding.rejectedEpoch >= epoch) {
+                    rejected(HostAdministrationSessionFailure.AUTHORIZATION_REJECTED)
+                } else {
+                    if (rejectedBinding != null) {
+                        authorizationRejectedOwner.compareAndSet(rejectedBinding, null)
+                    }
+                    HostAdministrationSessionResult.Ready(Unit)
+                }
+            }
+        }
+    }
+
     override fun close() {
         if (!closed.compareAndSet(false, true)) {
             return
         }
-        operationEpoch.incrementAndGet()
+        advanceOperationEpoch()
         invalidateConfirmation()
         reauthenticatedOwner.set(null)
         mutableState.value = RemoteHostViewState(
@@ -706,6 +922,7 @@ internal class RemoteHostCoordinator(
         context: RemoteHostOwnerContext,
         activation: HostActivation,
         epoch: Long,
+        clearPriorAuthorizationRejection: Boolean = false,
     ) {
         if (!isCurrent(epoch, context)) {
             return
@@ -735,14 +952,24 @@ internal class RemoteHostCoordinator(
 
         when (result) {
             is OwnerAccessResult.Success -> {
-                publishIfCurrent(
-                    epoch,
-                    context,
-                    RemoteHostViewState(
-                        phase = RemoteHostPhase.ACTIVE_CONFIRMED,
-                        verifiedHost = result.value,
-                    ),
+                val binding = ValidatedHostActivation(
+                    context = context,
+                    activation = activation,
+                    verifiedHost = result.value,
+                    epoch = epoch,
                 )
+                synchronized(administrationStateLock) {
+                    if (isCurrent(epoch, context)) {
+                        validatedHostActivation.set(binding)
+                        if (clearPriorAuthorizationRejection) {
+                            clearAuthorizationRejectionBefore(context, epoch)
+                        }
+                        mutableState.value = RemoteHostViewState(
+                            phase = RemoteHostPhase.ACTIVE_CONFIRMED,
+                            verifiedHost = result.value,
+                        )
+                    }
+                }
             }
 
             is OwnerAccessResult.Failure -> {
@@ -1150,10 +1377,171 @@ internal class RemoteHostCoordinator(
         return RemoteHostOwnerContext(owner, origin)
     }
 
+    private fun isValidatedHostCurrent(
+        binding: ValidatedHostActivation,
+        context: RemoteHostOwnerContext,
+        epoch: Long,
+    ): Boolean {
+        val currentState = mutableState.value
+        return validatedHostActivation.get() === binding &&
+            binding.epoch == epoch &&
+            sameOwnerOrigin(binding.context, context) &&
+            isCurrent(epoch, context) &&
+            currentState.phase == RemoteHostPhase.ACTIVE_CONFIRMED &&
+            currentState.verifiedHost == binding.verifiedHost &&
+            verifiedHostMatchesActivation(binding.verifiedHost, binding.activation)
+    }
+
+    private fun isAdministrationLeaseCurrent(
+        binding: AdministrationLeaseBinding,
+    ): Boolean {
+        val verified = validatedHostActivation.get() ?: return false
+        return administrationLease.get() === binding &&
+            binding.epoch == operationEpoch.get() &&
+            sameOwnerOrigin(currentContext(), binding.context) &&
+            isValidatedHostCurrent(
+                binding = verified,
+                context = binding.context,
+                epoch = binding.epoch,
+            ) &&
+            sameHostActivation(verified.activation, binding.activation)
+    }
+
+    private fun verifiedHostMatchesActivation(
+        verifiedHost: VerifiedHostAccess,
+        activation: HostActivation,
+    ): Boolean =
+        verifiedHost.installationId == activation.installationId &&
+            verifiedHost.monitorId == activation.monitorId &&
+            verifiedHost.membershipId == activation.membershipId &&
+            verifiedHost.generation == activation.generation
+
+    private fun sameHostActivation(
+        first: HostActivation?,
+        second: HostActivation,
+    ): Boolean {
+        if (first == null) {
+            return false
+        }
+        val firstContext = first.expectedHostContext()
+        val secondContext = second.expectedHostContext()
+        return sameOwnerOrigin(
+            RemoteHostOwnerContext(firstContext.owner, firstContext.origin),
+            RemoteHostOwnerContext(secondContext.owner, secondContext.origin),
+        ) &&
+            firstContext.monitorId == secondContext.monitorId &&
+            firstContext.installationId == secondContext.installationId &&
+            firstContext.membershipId == secondContext.membershipId &&
+            firstContext.generation == secondContext.generation &&
+            first.accessToken.reveal() == second.accessToken.reveal()
+    }
+
+    private fun sameOwnerOrigin(
+        first: RemoteHostOwnerContext?,
+        second: RemoteHostOwnerContext,
+    ): Boolean =
+        first != null &&
+            first.origin == second.origin &&
+            sameOwner(first.owner, second.owner)
+
+    private suspend fun validateLeaseBinding(
+        lease: HostAdministrationLease,
+    ): HostAdministrationSessionResult<AdministrationLeaseBinding> {
+        val candidate = when (val current = currentValidLeaseBinding(lease)) {
+            is HostAdministrationSessionResult.Ready -> current.value
+            is HostAdministrationSessionResult.Rejected -> return current
+        }
+
+        val loaded = sessionStore.load(candidate.context)
+        val activation = (loaded as? RemoteHostSessionLoad.ActiveSession)?.activation
+        return synchronized(administrationStateLock) {
+            if (closed.get()) {
+                administrationLease.compareAndSet(candidate, null)
+                rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            } else if (!isAdministrationLeaseCurrent(candidate)) {
+                administrationLease.compareAndSet(candidate, null)
+                rejectedForInvalidLease(candidate.context)
+            } else if (activation == null || !sameHostActivation(candidate.activation, activation)) {
+                administrationLease.compareAndSet(candidate, null)
+                rejected(HostAdministrationSessionFailure.SESSION_UNAVAILABLE)
+            } else {
+                HostAdministrationSessionResult.Ready(candidate)
+            }
+        }
+    }
+
+    private fun currentValidLeaseBinding(
+        lease: HostAdministrationLease,
+    ): HostAdministrationSessionResult<AdministrationLeaseBinding> =
+        synchronized(administrationStateLock) {
+            if (closed.get()) {
+                rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+            } else {
+                val current = administrationLease.get()
+                if (current == null || current.lease !== lease) {
+                    rejectedForInvalidLease(expectedContext = null)
+                } else if (!isAdministrationLeaseCurrent(current)) {
+                    administrationLease.compareAndSet(current, null)
+                    rejectedForInvalidLease(expectedContext = current.context)
+                } else {
+                    HostAdministrationSessionResult.Ready(current)
+                }
+            }
+        }
+
+    private fun <T> rejectedForInvalidLease(
+        expectedContext: RemoteHostOwnerContext?,
+    ): HostAdministrationSessionResult<T> {
+        if (closed.get()) {
+            return rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+        }
+        val context = currentContext()
+        val rejected = context != null &&
+            (expectedContext == null || sameOwnerOrigin(context, expectedContext)) &&
+            isAuthorizationRejected(context)
+        return if (rejected) {
+            rejected(HostAdministrationSessionFailure.AUTHORIZATION_REJECTED)
+        } else {
+            rejected(HostAdministrationSessionFailure.LEASE_INVALIDATED)
+        }
+    }
+
+    private fun isAuthorizationRejected(context: RemoteHostOwnerContext): Boolean =
+        authorizationRejectedOwner.get()?.let { rejected ->
+            rejected.owner == context.owner.toOwnerKey() && rejected.origin == context.origin
+        } == true
+
+    private fun clearAuthorizationRejectionBefore(
+        context: RemoteHostOwnerContext,
+        epoch: Long,
+    ) {
+        val rejected = authorizationRejectedOwner.get()
+            ?.takeIf { current ->
+                current.owner == context.owner.toOwnerKey() &&
+                    current.origin == context.origin &&
+                    current.rejectedEpoch < epoch
+            }
+            ?: return
+        authorizationRejectedOwner.compareAndSet(rejected, null)
+    }
+
+    private fun <T> rejected(
+        failure: HostAdministrationSessionFailure,
+    ): HostAdministrationSessionResult<T> =
+        HostAdministrationSessionResult.Rejected(failure)
+
     private fun nextOperation(): Long {
         invalidateConfirmation()
-        return operationEpoch.incrementAndGet()
+        return advanceOperationEpoch()
     }
+
+    private fun advanceOperationEpoch(): Long =
+        synchronized(administrationStateLock) {
+            val epoch = operationEpoch.incrementAndGet()
+            administrationLease.set(null)
+            validatedHostActivation.set(null)
+            epoch
+        }
 
     private fun invalidateConfirmation() {
         activeConfirmation.set(null)
@@ -1167,7 +1555,7 @@ internal class RemoteHostCoordinator(
 
         val currentAccount = identity.account.value
         if (!sameOwner(currentAccount, binding.context.owner)) {
-            operationEpoch.incrementAndGet()
+            advanceOperationEpoch()
             reauthenticatedOwner.set(null)
             publishAccountNotReady(currentAccount)
         } else if (ownerAccessClient.canonicalOrigin != binding.context.origin) {
@@ -1222,7 +1610,7 @@ internal class RemoteHostCoordinator(
         invalidateConfirmation()
         reauthenticatedOwner.set(null)
         if (!identityMutationInProgress.get()) {
-            operationEpoch.incrementAndGet()
+            advanceOperationEpoch()
             publishAccountNotReady(account)
         }
     }
@@ -1252,5 +1640,26 @@ internal class RemoteHostCoordinator(
         val discoveryEpoch: Long,
         val recoveryAttemptId: RemoteHostAttemptId?,
         val previousActivation: HostActivation?,
+    )
+
+    private data class ValidatedHostActivation(
+        val context: RemoteHostOwnerContext,
+        val activation: HostActivation,
+        val verifiedHost: VerifiedHostAccess,
+        val epoch: Long,
+    )
+
+    private class AdministrationLeaseBinding(
+        val lease: HostAdministrationLease,
+        val context: RemoteHostOwnerContext,
+        val epoch: Long,
+        val activation: HostActivation,
+        val pairingLease: PairingHostLease,
+    )
+
+    private data class OwnerOriginBinding(
+        val owner: OwnerKey,
+        val origin: String,
+        val rejectedEpoch: Long,
     )
 }

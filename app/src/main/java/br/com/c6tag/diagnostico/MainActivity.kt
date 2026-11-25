@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
                         identity = collectorApplication.ownerIdentity,
                         ownerAccessClient = collectorApplication.ownerAccessClient,
                         sessionStore = collectorApplication.remoteHostSessionStore,
+                        roleGuard = collectorApplication.remoteRoleGuard,
                     ) as T
                 }
             },

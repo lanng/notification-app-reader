@@ -28,6 +28,8 @@ import kotlinx.coroutines.withContext
 internal interface RemoteHostSessionStore {
     suspend fun load(expectedContext: RemoteHostOwnerContext): RemoteHostSessionLoad
 
+    suspend fun presence(): RemoteSessionPresence
+
     suspend fun beginAttempt(
         expectedContext: RemoteHostOwnerContext,
         expectedGeneration: OwnerGeneration,
@@ -516,6 +518,22 @@ internal class PersistentRemoteHostSessionStore(
             }
         }
     }
+
+    override suspend fun presence(): RemoteSessionPresence =
+        withSerializedIo {
+            val record = try {
+                file.readRecord(1)
+            } catch (_: IOException) {
+                return@withSerializedIo RemoteSessionPresence.Unavailable(
+                    RemoteSupportSessionProblem.PERSISTENCE_FAILURE,
+                )
+            }
+            if (record == null) {
+                RemoteSessionPresence.Absent
+            } else {
+                RemoteSessionPresence.Present
+            }
+        }
 
     override suspend fun beginAttempt(
         expectedContext: RemoteHostOwnerContext,

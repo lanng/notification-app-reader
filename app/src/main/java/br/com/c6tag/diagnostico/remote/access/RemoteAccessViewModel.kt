@@ -40,6 +40,7 @@ internal class RemoteAccessViewModel(
     private val identity: OwnerIdentity,
     private val ownerAccessClient: OwnerAccessClient,
     private val sessionStore: RemoteHostSessionStore,
+    private val roleGuard: RemoteRoleGuard,
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow(RemoteAccessUiState())
     val uiState = mutableUiState.asStateFlow()
@@ -324,6 +325,7 @@ internal class RemoteAccessViewModel(
         identity = identity,
         ownerAccessClient = ownerAccessClient,
         sessionStore = sessionStore,
+        roleGuard = roleGuard,
         parentScope = parentScope,
     )
 

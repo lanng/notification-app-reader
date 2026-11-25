@@ -19,6 +19,8 @@ import br.com.c6tag.diagnostico.remote.access.HttpsOwnerAccessTransport
 import br.com.c6tag.diagnostico.remote.access.KeystoreRemoteHostSessionStore
 import br.com.c6tag.diagnostico.remote.access.OwnerAccessClient
 import br.com.c6tag.diagnostico.remote.access.OwnerIdentity
+import br.com.c6tag.diagnostico.remote.access.KeystoreRemoteSupportSessionStore
+import br.com.c6tag.diagnostico.remote.access.RemoteRoleGuard
 import br.com.c6tag.diagnostico.remote.access.RemoteHostSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -114,5 +116,16 @@ class CollectorApplication : Application() {
 
     internal val remoteHostSessionStore: RemoteHostSessionStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         KeystoreRemoteHostSessionStore(applicationContext)
+    }
+
+    private val remoteSupportSessionStore by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        KeystoreRemoteSupportSessionStore(applicationContext)
+    }
+
+    internal val remoteRoleGuard: RemoteRoleGuard by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        RemoteRoleGuard(
+            hostPresence = { remoteHostSessionStore.presence() },
+            supportPresence = { remoteSupportSessionStore.presence() },
+        )
     }
 }
