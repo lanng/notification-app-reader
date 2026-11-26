@@ -1,5 +1,6 @@
 package br.com.c6tag.diagnostico.ui.monitor
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -39,7 +40,7 @@ class MonitorViewModelTest {
             f.await { !it.isLoading }
             f.main { f.vm.beginReference() }
             val form = f.await { it.referenceDraft != null && !it.isBusy }.referenceDraft!!
-            f.main { f.vm.updateBalance("999") }
+            f.main { f.vm.updateBalance(moneyChange("999")) }
             f.now = 1_100L
             f.coordinator.confirmReference(ConfirmReference(form.session.id, null, 10_000L, 30_000L, 0L))
             val stale = f.await { it.referenceDraft?.sessionUnavailable == true && it.overview.reference != null }
@@ -153,7 +154,7 @@ class MonitorViewModelTest {
         Fixture().use { f ->
             val initial = f.await { !it.isLoading }.overview.settings
             f.main {
-                f.vm.editSettingsLimit("-1,00")
+                f.vm.editSettingsLimit(moneyChange("-1,00"))
                 f.vm.editSettingsRepeat(20)
                 f.vm.editSettingsPause(45)
                 f.vm.saveSettings()
@@ -163,7 +164,7 @@ class MonitorViewModelTest {
             assertEquals(initial, f.coordinator.overview().settings)
 
             f.main {
-                f.vm.editSettingsLimit("450,00")
+                f.vm.editSettingsLimit(moneyChange("450,00"))
                 f.vm.editSettingsRepeat(30)
                 f.vm.editSettingsPause(120)
                 f.vm.saveSettings()
@@ -176,6 +177,144 @@ class MonitorViewModelTest {
             assertNull(saved.settingsDraft)
             assertEquals(saved.overview.settings, f.coordinator.overview().settings)
             assertNull(saved.overview.reference)
+        }
+    }
+
+    @Test fun moneyEditorCanonicalValuesPersistAsRealsAndCentsForSettingsAndReference() = runBlocking {
+        Fixture().use { f ->
+            f.await { !it.isLoading }
+            f.main {
+                f.vm.editSettingsLimit(moneyChange("600,00"))
+                f.vm.saveSettings()
+            }
+            val settings = f.await { !it.isBusy && it.overview.settings.limitCents == 60_000L }
+            assertNull(settings.settingsDraft)
+
+            f.main { f.vm.beginReference() }
+            f.await { it.referenceDraft != null && !it.isBusy }
+            f.main {
+                f.vm.updateBalance(moneyChange("1245,00"))
+                f.vm.updateLimit(moneyChange("600,00"))
+                f.vm.reviewReference()
+            }
+            assertTrue(f.vm.uiState.value.referenceDraft!!.confirmationVisible)
+            f.main { f.vm.confirmReference() }
+
+            val saved = f.await { it.referenceDraft == null && !it.isBusy && it.overview.reference != null }
+            assertEquals(124_500L, saved.overview.balanceCents)
+            assertEquals(60_000L, saved.overview.settings.limitCents)
+            assertEquals(1, f.coordinator.history(limit = 100).size)
+        }
+    }
+
+    @Test fun loadedNegativeReferenceIsPreservedAndCancellingAnEditKeepsHistory() = runBlocking {
+        Fixture().use { f ->
+            f.await { !it.isLoading }
+            val session = f.coordinator.beginReference().session!!
+            f.now = 1_100L
+            assertNull(f.coordinator.confirmReference(ConfirmReference(
+                session.id, null, -2_025L, 30_000L, 0L,
+            )).rejection)
+            val loaded = f.await { !it.isBusy && it.overview.balanceCents == -2_025L }
+            val historyBefore = f.coordinator.history(limit = 100)
+            assertEquals(1, historyBefore.size)
+
+            f.main { f.vm.beginReference() }
+            val draft = f.await { it.referenceDraft != null && !it.isBusy }.referenceDraft!!
+            assertEquals("-20,25", draft.balance)
+            f.main {
+                f.vm.updateBalance(moneyChange("500,00"))
+                f.vm.cancelReference()
+            }
+
+            val cancelled = f.await { it.referenceDraft == null && !it.isBusy }
+            assertEquals(-2_025L, cancelled.overview.balanceCents)
+            assertEquals(historyBefore, f.coordinator.history(limit = 100))
+            assertEquals(-2_025L, loaded.overview.balanceCents)
+        }
+    }
+
+    @Test fun rejectedReferenceEditBlocksReviewAndConfirmUntilAValidEditClearsItsError() = runBlocking {
+        Fixture().use { f ->
+            f.await { !it.isLoading }
+            f.main { f.vm.beginReference() }
+            f.await { it.referenceDraft != null && !it.isBusy }
+            f.main {
+                f.vm.updateBalance(moneyChange("1245,00"))
+                f.vm.updateLimit(moneyChange("300,00"))
+                f.vm.reviewReference()
+            }
+            assertTrue(f.vm.uiState.value.referenceDraft!!.confirmationVisible)
+            val overviewBeforeRejection = f.coordinator.overview()
+            val historyBeforeRejection = f.coordinator.history(limit = 100)
+
+            f.main {
+                f.vm.updateBalance(moneyChange("9999,99", invalid = true))
+                f.vm.reviewReference()
+                f.vm.confirmReference()
+            }
+            val rejected = f.vm.uiState.value.referenceDraft!!
+            assertTrue(rejected.balanceInputError)
+            assertEquals("1245,00", rejected.balance)
+            assertFalse(rejected.confirmationVisible)
+            assertEquals(overviewBeforeRejection, f.coordinator.overview())
+            assertEquals(historyBeforeRejection, f.coordinator.history(limit = 100))
+
+            f.main {
+                f.vm.updateBalance(moneyChange("1245,00"))
+                f.vm.reviewReference()
+            }
+            assertFalse(f.vm.uiState.value.referenceDraft!!.balanceInputError)
+            assertTrue(f.vm.uiState.value.referenceDraft!!.confirmationVisible)
+
+            f.main {
+                f.vm.updateLimit(moneyChange("0,01", invalid = true))
+                f.vm.reviewReference()
+                f.vm.confirmReference()
+            }
+            val rejectedLimit = f.vm.uiState.value.referenceDraft!!
+            assertTrue(rejectedLimit.limitInputError)
+            assertEquals("300,00", rejectedLimit.limit)
+            assertFalse(rejectedLimit.confirmationVisible)
+            assertEquals(overviewBeforeRejection, f.coordinator.overview())
+            assertEquals(historyBeforeRejection, f.coordinator.history(limit = 100))
+
+            f.main {
+                f.vm.updateLimit(moneyChange("300,00"))
+                f.vm.reviewReference()
+            }
+            assertFalse(f.vm.uiState.value.referenceDraft!!.limitInputError)
+            assertTrue(f.vm.uiState.value.referenceDraft!!.confirmationVisible)
+            f.main { f.vm.confirmReference() }
+            val saved = f.await { it.referenceDraft == null && !it.isBusy && it.overview.reference != null }
+            assertEquals(124_500L, saved.overview.balanceCents)
+        }
+    }
+
+    @Test fun rejectedSettingsEditBlocksSaveUntilAValidEditClearsItsError() = runBlocking {
+        Fixture().use { f ->
+            val overviewBeforeRejection = f.await { !it.isLoading }.overview
+            val original = overviewBeforeRejection.settings
+            val historyBeforeRejection = f.coordinator.history(limit = 100)
+            f.main {
+                f.vm.editSettingsLimit(moneyChange("600,00"))
+                f.vm.editSettingsLimit(moneyChange("0,01", invalid = true))
+                f.vm.saveSettings()
+            }
+            val rejected = f.vm.uiState.value
+            assertTrue(rejected.settingsDraft!!.moneyInputError)
+            assertEquals("600,00", rejected.settingsDraft!!.limit)
+            assertEquals(overviewBeforeRejection, f.coordinator.overview())
+            assertEquals(original, f.coordinator.overview().settings)
+            assertEquals(historyBeforeRejection, f.coordinator.history(limit = 100))
+
+            f.main {
+                f.vm.editSettingsLimit(moneyChange("600,00"))
+                f.vm.saveSettings()
+            }
+            val saved = f.await { !it.isBusy && it.overview.settings.limitCents == 60_000L }
+            assertFalse(saved.settingsDraft?.moneyInputError ?: false)
+            assertEquals(60_000L, f.coordinator.overview().settings.limitCents)
         }
     }
 
@@ -233,19 +372,34 @@ class MonitorViewModelTest {
 
     @Test fun pendingWithRemovedRawEvidenceShowsPersistedSummaryAndCanBeExplicitlyResolved() = runBlocking {
         Fixture().use { f ->
-            f.configure()
+            f.configure(awaitLabelPrefix = "pending-removed-raw")
             f.main { f.vm.beginReference() }
-            val draft = f.await { it.referenceDraft != null && !it.isBusy }.referenceDraft!!
+            val draft = f.await("active-reference-draft") {
+                it.referenceDraft != null && !it.isBusy
+            }.referenceDraft!!
             f.now = 1_200L
             f.record()
-            f.await { it.overview.pendingCount == 1L }
+            f.await("pending-count-one") { it.overview.pendingCount == 1L }
             f.now = 1_300L
-            assertNull(f.coordinator.confirmReference(ConfirmReference(
+            val externalConfirmation = f.coordinator.confirmReference(ConfirmReference(
                 draft.session.id, 1L, 20_000L, 30_000L, 0L,
-            )).rejection)
+            ))
+            assertNull(externalConfirmation.rejection)
+            val confirmedOverview = externalConfirmation.overview
+            val expectedReferenceId = requireNotNull(confirmedOverview.reference?.id)
+            val expectedRevision = confirmedOverview.revision.value
+            val observedReference = f.await("new-reference-observed") {
+                it.overview.reference?.id == expectedReferenceId &&
+                    it.overview.revision.value >= expectedRevision &&
+                    it.overview.referenceSession == null &&
+                    !it.isBusy
+            }
+            assertEquals(expectedReferenceId, observedReference.overview.reference?.id)
             f.recorder.clear()
             f.main { f.vm.loadPending() }
-            val missingRaw = f.await { !it.pendingLoading && it.pending.isNotEmpty() }
+            val missingRaw = f.await("pending-page-loaded") {
+                !it.pendingLoading && it.pending.isNotEmpty()
+            }
             assertFalse(missingRaw.pending.single().rawEvidenceAvailable)
             assertEquals(20_000L, missingRaw.overview.balanceCents)
             assertEquals(FinancialEntryKind.REFERENCE, f.coordinator.history(limit = 1).single().kind)
@@ -257,7 +411,9 @@ class MonitorViewModelTest {
                 f.vm.confirmPendingDecision()
                 f.vm.confirmPendingDecision()
             }
-            val applied = f.await { !it.isBusy && it.overview.balanceCents == 21_000L }
+            val applied = f.await("resolution-applied") {
+                !it.isBusy && it.overview.balanceCents == 21_000L
+            }
             assertNull(applied.pendingSelection)
             assertEquals(0L, applied.overview.pendingCount)
             assertEquals(21_000L, f.coordinator.overview().balanceCents)
@@ -271,7 +427,7 @@ class MonitorViewModelTest {
             f.main { f.vm.beginReference() }
             f.await { it.referenceDraft != null && !it.isBusy }
             f.main {
-                f.vm.updateBalance("847,20")
+                f.vm.updateBalance(moneyChange("847,20"))
                 f.vm.reviewReference()
             }
             f.await { it.referenceDraft?.confirmationVisible == true }
@@ -289,11 +445,11 @@ class MonitorViewModelTest {
             f.await { !it.isLoading }
             f.main { f.vm.beginReference() }
             f.await { it.referenceDraft != null && !it.isBusy }
-            f.main { f.vm.updateBalance("10,001"); f.vm.reviewReference() }
+            f.main { f.vm.updateBalance(moneyChange("10,001")); f.vm.reviewReference() }
             assertTrue(f.vm.uiState.value.referenceDraft!!.invalidInput)
-            f.main { f.vm.updateBalance("12"); f.vm.updateLimit("-1"); f.vm.reviewReference() }
+            f.main { f.vm.updateBalance(moneyChange("12")); f.vm.updateLimit(moneyChange("-1")); f.vm.reviewReference() }
             assertTrue(f.vm.uiState.value.referenceDraft!!.invalidInput)
-            f.main { f.vm.updateLimit("300"); f.vm.confirmReference() }
+            f.main { f.vm.updateLimit(moneyChange("300")); f.vm.confirmReference() }
             assertNull(f.coordinator.overview().reference)
             f.main { f.vm.cancelReference() }
             f.await { it.referenceDraft == null && !it.isBusy }
@@ -309,7 +465,7 @@ class MonitorViewModelTest {
             f.now = 1_050L
             f.record()
             f.await { it.overview.pendingCount == 1L }
-            f.main { f.vm.updateBalance("-20,00"); f.vm.reviewReference() }
+            f.main { f.vm.updateBalance(moneyChange("-20,00")); f.vm.reviewReference() }
             f.now = 1_100L
             f.main { f.vm.confirmReference() }
             val saved = f.await { it.referenceDraft == null && it.overview.reference != null && !it.isBusy }
@@ -334,7 +490,7 @@ class MonitorViewModelTest {
             assertEquals(0L, cancelled.overview.pendingCount)
             f.main { f.vm.beginReference() }
             f.await { it.referenceDraft != null && !it.isBusy }
-            f.main { f.vm.updateBalance("100,00"); f.vm.reviewReference() }
+            f.main { f.vm.updateBalance(moneyChange("100,00")); f.vm.reviewReference() }
             f.now = 1_300L
             f.main { f.vm.confirmReference() }
             val corrected = f.await { it.overview.reference?.id == 2L && !it.isBusy }
@@ -349,7 +505,7 @@ class MonitorViewModelTest {
             f.await { !it.isLoading }
             f.main { f.vm.beginReference() }
             f.await { it.referenceDraft != null && !it.isBusy }
-            f.main { f.vm.updateBalance("42,00") }
+            f.main { f.vm.updateBalance(moneyChange("42,00")) }
             f.now = 901_000L
             f.main { f.vm.refresh() }
             val expired = f.await { it.referenceDraft?.sessionUnavailable == true && !it.isBusy }
@@ -445,16 +601,47 @@ class MonitorViewModelTest {
             vm = created!!
         }
         suspend fun await(predicate: (MonitorUiState) -> Boolean): MonitorUiState =
+            await(null, predicate)
+        suspend fun await(
+            stage: String?,
+            predicate: (MonitorUiState) -> Boolean,
+        ): MonitorUiState = try {
             withTimeout(5_000L) { vm.uiState.first(predicate) }
+        } catch (timeout: TimeoutCancellationException) {
+            if (stage != null) {
+                val state = vm.uiState.value
+                val overview = state.overview
+                val selection = state.pendingSelection
+                Log.e(
+                    "MonitorViewModelTest",
+                    "[T7-AWAIT-TIMEOUT] stage=$stage " +
+                        "busy=${state.isBusy} referenceId=${overview.reference?.id} " +
+                        "referenceSessionId=${overview.referenceSession?.id} " +
+                        "pendingCount=${overview.pendingCount} " +
+                        "visiblePendingRows=${state.pending.size} " +
+                        "selectedExpectedReferenceId=${selection?.expectedReferenceId} " +
+                        "selectedStale=${selection?.stale} " +
+                        "selectedConfirmation=${selection?.confirmation} " +
+                        "balanceCents=${overview.balanceCents} " +
+                        "revision=${overview.revision.value}/${overview.revision.cause}",
+                    timeout,
+                )
+            }
+            throw timeout
+        }
         suspend fun main(action: () -> Unit) = withContext(Dispatchers.Main) { action() }
-        suspend fun configure() {
-            await { !it.isLoading }
+        suspend fun configure(awaitLabelPrefix: String? = null) {
+            await(awaitLabelPrefix?.let { "$it.initial" }) { !it.isLoading }
             main { vm.beginReference() }
-            await { it.referenceDraft != null && !it.isBusy }
-            main { vm.updateBalance("200"); vm.reviewReference() }
+            await(awaitLabelPrefix?.let { "$it.reference-draft" }) {
+                it.referenceDraft != null && !it.isBusy
+            }
+            main { vm.updateBalance(moneyChange("200")); vm.reviewReference() }
             now = 1_100L
             main { vm.confirmReference() }
-            await { it.overview.reference != null && !it.isBusy }
+            await(awaitLabelPrefix?.let { "$it.reference-confirmed" }) {
+                it.overview.reference != null && !it.isBusy
+            }
         }
         fun record(key: String = "synthetic-pix") {
             recorder.recordNotification("synthetic.bank") {
@@ -473,3 +660,6 @@ class MonitorViewModelTest {
         }
     }
 }
+
+private fun moneyChange(canonicalText: String, invalid: Boolean = false): BrlMoneyInputChange =
+    BrlMoneyInputChange(canonicalText, invalid)

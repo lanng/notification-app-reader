@@ -248,6 +248,31 @@ class AlertPolicyTest {
         )
     }
 
+    @Test
+    fun escalationToCriticalBypassesRemainingRepeatIntervalAndAttentionPause() {
+        val attentionSent = submitted() // balance = 20_000, limit = 30_000, lastSubmittedAt = 1_100, nextReminder = 901_100
+        val pausedAttention = policy.acknowledge(attentionSent, attentionSent.id, 2_000L, settings).cycle!!
+
+        // 5 minutes later (still well inside 15-min repeat & 30-min pause), balance drops below half (14_999 < 15_000)
+        val critical = evaluate(pausedAttention, 302_000L, AlertBalance(14_999L, 30_000L))
+        assertEquals(AlertStatus.ACTIVE, critical.cycle!!.status)
+        assertNull(critical.cycle.pauseUntilMs)
+        assertNotNull(critical.emissionRequested)
+        assertEquals(true, critical.emissionRequested!!.isCritical)
+
+        // Once critical emission is accepted, subsequent critical repeats respect the 15-min interval
+        val criticalSent = policy.recordSubmission(
+            critical.cycle,
+            critical.emissionRequested!!,
+            SubmissionOutcome.ACCEPTED,
+            302_100L,
+            settings,
+        ).cycle!!
+        assertEquals(true, criticalSent.criticalAlerted)
+        assertNull(evaluate(criticalSent, 400_000L, AlertBalance(12_000L, 30_000L)).emissionRequested)
+        assertNotNull(evaluate(criticalSent, 302_100L + 900_000L, AlertBalance(12_000L, 30_000L)).emissionRequested)
+    }
+
     private fun opened(): AlertCycle {
         val result = policy.evaluate(low, settings, null, 1_000L, "cycle-a")
         assertNotNull(result.cycle)

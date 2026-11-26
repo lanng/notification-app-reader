@@ -6,6 +6,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
 }
 
 val c6PackageName = gradle.startParameter.projectProperties["c6PackageName"]
@@ -21,6 +22,8 @@ val c6PackageName = gradle.startParameter.projectProperties["c6PackageName"]
             }.getProperty("c6.packageName")
         }
     ?: ""
+
+val ownerApiOrigin = gradle.startParameter.projectProperties["ownerApiOrigin"] ?: ""
 
 fun String.asJavaStringLiteral(): String = buildString {
     append('"')
@@ -50,13 +53,14 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "br.com.c6tag.diagnostico"
+        applicationId = "br.com.tagalert.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 2
         versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "C6_PACKAGE_NAME", c6PackageName.asJavaStringLiteral())
+        buildConfigField("String", "OWNER_API_ORIGIN", ownerApiOrigin.asJavaStringLiteral())
     }
 
     buildFeatures {
@@ -86,6 +90,14 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.work.runtime)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.messaging)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.googleid)
+    implementation(libs.androidx.fragment)
+    implementation(libs.gson)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)

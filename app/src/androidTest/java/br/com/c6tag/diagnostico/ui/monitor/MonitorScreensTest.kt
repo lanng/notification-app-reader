@@ -88,6 +88,41 @@ class MonitorScreensTest {
         compose.onNodeWithTag("balance-value").assertIsDisplayed()
     }
 
+    @Test fun settingsLimitUsesTheSharedCurrencyEditorAndEmitsCanonicalText() {
+        val ui = mutableStateOf(state().copy(settingsDraft = MonitorSettingsDraft(
+            limit = "1245,00",
+            repeatMinutes = 30,
+            pauseMinutes = 60,
+        )))
+        var lastChange: BrlMoneyInputChange? = null
+        compose.setContent {
+            MonitorTheme {
+                MonitorSettingsScreen(
+                    ui.value,
+                    MonitorActions(onSettingsLimit = { change ->
+                        lastChange = change
+                        if (!change.invalid) {
+                            ui.value = ui.value.copy(
+                                settingsDraft = ui.value.settingsDraft!!.copy(
+                                    limit = change.canonicalText,
+                                    moneyInputError = false,
+                                ),
+                            )
+                        }
+                    }),
+                )
+            }
+        }
+
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-limit"))
+        compose.onNodeWithTag("settings-limit").assertTextContains("1.245,00")
+        compose.onNodeWithTag("settings-limit").performTextReplacement("60000")
+
+        assertEquals(BrlMoneyInputChange("600,00"), lastChange)
+        compose.onNodeWithTag("settings-limit").assertTextContains("600,00")
+        compose.onNodeWithText("R$").assertIsDisplayed()
+    }
+
     @Test fun financialHistoryUsesCoordinatorRowsAndDistinguishesReferenceFromIncome() {
         val history = listOf(
             FinancialEntry(2L, FinancialEntryKind.PIX_CREDIT, 1L, 7L, 1_000L, 85_720L, 2L, 7L),

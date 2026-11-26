@@ -72,19 +72,37 @@ internal class DiagnosticDatabase(
         oldVersion: Int,
         newVersion: Int,
     ) {
-        check(oldVersion == 1 && newVersion == 2) { "Unsupported diagnostic database upgrade" }
-        MonitorSchema.create(database)
-        // SQLiteOpenHelper wraps the entire upgrade in a transaction. Decode by cursor;
-        // a corrupt row must abort that transaction instead of masquerading as empty history.
-        database.rawQuery(
-            "SELECT id,observed_at_ms,kind,payload_json FROM events ORDER BY id ASC", null,
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                val stored = cursor.readStoredEvent()
-                MonitorSql.rememberSource(database, stored.id, stored.event)
+        check(oldVersion in 1 until newVersion && newVersion == SCHEMA_VERSION) {
+            "Unsupported diagnostic database upgrade"
+        }
+        if (oldVersion == 1) {
+            MonitorSchema.create(database)
+            // SQLiteOpenHelper wraps the entire upgrade in a transaction. Decode by cursor;
+            // a corrupt row must abort that transaction instead of masquerading as empty history.
+            database.rawQuery(
+                "SELECT id,observed_at_ms,kind,payload_json FROM events ORDER BY id ASC", null,
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val stored = cursor.readStoredEvent()
+                    MonitorSql.rememberSource(database, stored.id, stored.event)
+                    database.execSQL(
+                        "UPDATE monitor_state SET last_observation_id=?,last_observed_at_ms=? WHERE id=1",
+                        arrayOf(stored.id, stored.event.observedAtMs),
+                    )
+                }
+            }
+        } else {
+            if (oldVersion < 3) {
                 database.execSQL(
-                    "UPDATE monitor_state SET last_observation_id=?,last_observed_at_ms=? WHERE id=1",
-                    arrayOf(stored.id, stored.event.observedAtMs),
+                    "ALTER TABLE monitor_alert_cycles ADD COLUMN emission_count INTEGER NOT NULL DEFAULT 0 CHECK(emission_count>=0)",
+                )
+            }
+            if (oldVersion < 4) {
+                database.execSQL(
+                    "ALTER TABLE monitor_alert_cycles ADD COLUMN critical_alerted INTEGER NOT NULL DEFAULT 0 CHECK(critical_alerted IN(0,1))",
+                )
+                database.execSQL(
+                    "ALTER TABLE monitor_alert_cycles ADD COLUMN intent_critical INTEGER NOT NULL DEFAULT 0 CHECK(intent_critical IN(0,1))",
                 )
             }
         }
@@ -200,7 +218,7 @@ internal class DiagnosticDatabase(
 
     private companion object {
         const val DEFAULT_DATABASE_NAME = "diagnostic_history.db"
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 4
         const val TABLE_EVENTS = "events"
         const val COLUMN_ID = "id"
         const val COLUMN_OBSERVED_AT = "observed_at_ms"

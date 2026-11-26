@@ -10,7 +10,12 @@ internal data class AlertBalance(
 
 internal enum class AlertStatus { ACTIVE, PAUSED, CLOSED }
 
-internal data class EmissionIntent(val cycleId: String, val version: Long, val requestedAtMs: Long)
+internal data class EmissionIntent(
+    val cycleId: String,
+    val version: Long,
+    val requestedAtMs: Long,
+    val isCritical: Boolean = false,
+)
 
 internal data class AlertCycle(
     val id: String,
@@ -22,6 +27,8 @@ internal data class AlertCycle(
     val pauseUntilMs: Long? = null,
     val emissionIntent: EmissionIntent? = null,
     val lastSubmissionOutcome: SubmissionOutcome? = null,
+    val emissionCount: Int = 0,
+    val criticalAlerted: Boolean = false,
 )
 
 // ACCEPTED means the platform call succeeded, not that sound or reading occurred.

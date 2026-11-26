@@ -1,0 +1,1024 @@
+package br.com.c6tag.diagnostico.remote.probe
+
+import android.app.Activity
+import android.app.Application
+import android.app.Instrumentation
+import android.app.Notification
+import android.app.NotificationChannel
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import br.com.c6tag.diagnostico.monitor.ThemePreference
+import br.com.c6tag.diagnostico.ui.monitor.MonitorActions
+import br.com.c6tag.diagnostico.ui.monitor.MonitorSettingsScreen
+import br.com.c6tag.diagnostico.ui.monitor.MonitorUiState
+import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.RuleChain
+import org.junit.rules.TestRule
+import org.junit.runner.Description
+import org.junit.runner.RunWith
+import org.junit.runners.model.Statement
+import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
+
+@RunWith(AndroidJUnit4::class)
+class AlertProbeScreenTest {
+    private val instrumentation
+        get() = InstrumentationRegistry.getInstrumentation()
+    private val context: Context
+        get() = instrumentation.targetContext
+    private val platform = FakePlatform()
+    private val fullScreenAccess = FakeFullScreenAccess()
+    private val delayScheduler = FakeDelayScheduler()
+    private val windowPresentation = FakeWindowPresentation()
+    private val factoryCalls = AtomicInteger()
+    private val openedActivities = CopyOnWriteArrayList<Activity>()
+    private val resumedActivities = CopyOnWriteArrayList<Activity>()
+    private val preferencesName = "probe-ui-test-${UUID.randomUUID()}"
+    private val preferences by lazy {
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    }
+    private val readFailingPreferences by lazy { ReadFailingPreferences(preferences) }
+    private val store by lazy { ProbeSessionStore(context, readFailingPreferences) }
+    private var monotonicNow = 10_000L
+    private lateinit var previousFactory: (Context, ProbeFullScreenAccess) -> ProbeNotificationController
+    private lateinit var previousFullScreenAccessFactory: (Context) -> ProbeFullScreenAccess
+    private lateinit var previousDelayedTriggerFactory: (Context, () -> Unit) -> ProbeDelayedTrigger
+    private lateinit var previousWindowPresentationFactory: (Activity) -> ProbeWindowPresentation
+
+    private val factoryRule = object : TestRule {
+        override fun apply(base: Statement, description: Description): Statement =
+            object : Statement() {
+                override fun evaluate() {
+                    previousFactory = ProbeDependencies.controllerFactory
+                    previousFullScreenAccessFactory = ProbeDependencies.fullScreenAccessFactory
+                    previousDelayedTriggerFactory = ProbeDependencies.delayedTriggerFactory
+                    previousWindowPresentationFactory = ProbeDependencies.windowPresentationFactory
+                    ProbeDependencies.fullScreenAccessFactory = { fullScreenAccess }
+                    ProbeDependencies.controllerFactory = { activityContext, access ->
+                        factoryCalls.incrementAndGet()
+                        ProbeNotificationController(
+                            activityContext,
+                            store,
+                            platform,
+                            fullScreenAccessOverride = access,
+                            monotonicClock = { monotonicNow },
+                        )
+                    }
+                    ProbeDependencies.delayedTriggerFactory = { _, submit ->
+                        ProbeDelayedTrigger(delayScheduler, submit)
+                    }
+                    ProbeDependencies.windowPresentationFactory = {
+                        windowPresentation
+                    }
+                    val callbacks = object : Application.ActivityLifecycleCallbacks {
+                        override fun onActivityCreated(activity: Activity, state: Bundle?) {
+                            if (activity is AlertProbeActivity) openedActivities += activity
+                        }
+
+                        override fun onActivityStarted(activity: Activity) = Unit
+                        override fun onActivityResumed(activity: Activity) {
+                            resumedActivities += activity
+                        }
+                        override fun onActivityPaused(activity: Activity) {
+                            resumedActivities -= activity
+                        }
+                        override fun onActivityStopped(activity: Activity) = Unit
+                        override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
+                        override fun onActivityDestroyed(activity: Activity) = Unit
+                    }
+                    val application = context.applicationContext as Application
+                    application.registerActivityLifecycleCallbacks(callbacks)
+                    try {
+                        base.evaluate()
+                    } finally {
+                        instrumentation.runOnMainSync {
+                            openedActivities.forEach { if (!it.isFinishing) it.finish() }
+                        }
+                        application.unregisterActivityLifecycleCallbacks(callbacks)
+                        ProbeDependencies.controllerFactory = previousFactory
+                        ProbeDependencies.fullScreenAccessFactory = previousFullScreenAccessFactory
+                        ProbeDependencies.delayedTriggerFactory = previousDelayedTriggerFactory
+                        ProbeDependencies.windowPresentationFactory = previousWindowPresentationFactory
+                        preferences.edit().clear().commit()
+                    }
+                }
+            }
+    }
+
+    private val compose = createAndroidComposeRule<AlertProbeActivity>()
+
+    @get:Rule
+    val rules: TestRule = RuleChain.outerRule(factoryRule).around(compose)
+
+    @Test
+    fun openingTheActualSettingsEntryShowsTheProbeActivityWithoutPublishing() {
+        val monitor = addProbeActivityMonitor()
+        try {
+            showActualSettings()
+            compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("probe-open"))
+            compose.onNodeWithTag("probe-open")
+                .assertHasClickAction().performClick()
+            val activity = instrumentation.waitForMonitorWithTimeout(monitor, 5_000)
+            assertNotNull("The settings entry must launch the real debug activity", activity)
+            assertTrue("The settings entry must launch AlertProbeActivity", activity is AlertProbeActivity)
+            assertTrue("Both Activity creations must use the installed fake controller factory", factoryCalls.get() >= 2)
+            assertTrue("Opening the probe must remain read-only", platform.published.isEmpty())
+            assertTrue("Opening the probe must not create a channel", platform.createdChannels.isEmpty())
+            assertEquals(0, platform.cancelAttempts.get())
+
+            val settingsActivity = compose.activity
+            instrumentation.runOnMainSync {
+                (activity as AlertProbeActivity).onBackPressedDispatcher.onBackPressed()
+            }
+            compose.waitUntil(5_000) { settingsActivity in resumedActivities }
+            compose.onNodeWithTag("settings-scroll").assertIsDisplayed()
+        } finally {
+            closeProbeActivities(monitor)
+        }
+    }
+
+    @Test
+    fun onlyExplicitStartPublishesAndStopCancelsTheRegisteredOccurrence() {
+        assertTrue(platform.published.isEmpty())
+        assertTrue(platform.createdChannels.isEmpty())
+
+        tapText("Iniciar teste")
+        compose.waitUntil(5_000) { platform.published.size == 1 }
+        val occurrenceId = store.currentOccurrenceId()
+        assertNotNull(occurrenceId)
+        assertEquals(1, platform.createdChannels.size)
+
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithText("Teste de alerta crítico").assertIsDisplayed()
+        assertEquals("Reopening must not start another test", 1, platform.published.size)
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        compose.onNodeWithText("Parar som").assertIsDisplayed()
+
+        tapText("Parar som")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() == null }
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals("Stop must not submit another notification", 1, platform.published.size)
+    }
+
+    @Test
+    fun failedPublicationAndCancellationKeepStopVisibleForRetry() {
+        platform.publishFailure = IllegalStateException("synthetic publish failure")
+        platform.cancelFailure = IllegalStateException("synthetic cancellation failure")
+
+        tapText("Iniciar teste")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() != null }
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        compose.onNodeWithText("Parar som").assertIsDisplayed()
+        assertTrue(platform.published.isEmpty())
+
+        tapText("Parar som")
+        assertEquals("A failed cancel must retain the occurrence for retry", occurrenceId, store.currentOccurrenceId())
+        compose.onNodeWithText("Parar som").assertIsDisplayed()
+
+        platform.cancelFailure = null
+        tapText("Parar som")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() == null }
+        assertEquals(3, platform.cancelAttempts.get())
+        assertEquals(0, platform.published.size)
+    }
+
+    @Test
+    fun deniedAndUnknownCapabilitiesRemainReadableWithoutAutomaticSystemUi() {
+        platform.permission = false
+        platform.appNotificationsEnabled = false
+        platform.channelFailure = IllegalStateException("synthetic channel read failure")
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithText("Permissão de notificações: não concedida.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Notificações do app: desativadas.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Não foi possível consultar o canal de notificações.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Para receber a notificação de teste, você pode conceder POST_NOTIFICATIONS. A permissão só será solicitada depois que você tocar no botão abaixo.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-permission").performScrollTo().assertIsDisplayed()
+        assertTrue(platform.published.isEmpty())
+        assertTrue(platform.createdChannels.isEmpty())
+        assertEquals(0, platform.cancelAttempts.get())
+    }
+
+    @Test
+    fun unreadableSessionWithoutKnownOccurrenceDisablesStartAndShowsUnavailable() {
+        readFailingPreferences.failStringReads = true
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithTag("probe-start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Não foi possível consultar o estado do teste de alerta. Tente novamente.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-stop").assertIsNotDisplayed()
+        assertTrue(platform.published.isEmpty())
+        assertEquals(0, platform.cancelAttempts.get())
+    }
+
+    @Test
+    fun unreadableKnownSessionKeepsStopAndBlocksStartUntilSafeRetry() {
+        tapText("Iniciar teste")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() != null }
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+
+        readFailingPreferences.failStringReads = true
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithTag("probe-stop").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithText("Não foi possível consultar o estado do teste de alerta. Tente novamente.")
+            .performScrollTo().assertIsDisplayed()
+        assertEquals(0, platform.cancelAttempts.get())
+
+        tapText("Parar som")
+        compose.onNodeWithTag("probe-stop").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Não foi possível consultar o estado do teste de alerta. Tente novamente.")
+            .performScrollTo().assertIsDisplayed()
+        assertEquals("A storage read failure must not reach platform cancellation", 0, platform.cancelAttempts.get())
+
+        readFailingPreferences.failStringReads = false
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        tapText("Parar som")
+        compose.waitUntil(5_000) { store.currentOccurrenceId() == null }
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals(1, platform.published.size)
+    }
+
+    @Test
+    fun blockedChannelIsVisibleDisablesStartAndKeepsExplicitSettingsActionAvailable() {
+        val blockedChannel = NotificationChannel(
+            ProbeNotificationController.CHANNEL_ID,
+            "synthetic blocked probe channel",
+            android.app.NotificationManager.IMPORTANCE_NONE,
+        )
+        platform.channelValue = blockedChannel
+        compose.activityRule.scenario.recreate()
+
+        compose.onNodeWithText("Permissão de notificações: concedida.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Notificações do app: ativadas.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Canal de notificações bloqueado no Android.")
+            .performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("probe-start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("probe-settings")
+            .performScrollTo()
+            .assertIsDisplayed()
+            .assertHasClickAction()
+
+        assertTrue("Opening/recreating must not publish", platform.published.isEmpty())
+        assertTrue("Opening/recreating must not create or reset the blocked channel", platform.createdChannels.isEmpty())
+        assertEquals("Opening/recreating must not cancel", 0, platform.cancelAttempts.get())
+        assertSame(blockedChannel, platform.channelValue)
+
+        var settingsRequests = 0
+        compose.activity.setContent {
+            MonitorTheme {
+                AlertProbeScreen(
+                    state = AlertProbeScreenState(
+                        status = ProbeControllerStatus(
+                            permission = ProbeCapabilityStatus.GRANTED,
+                            appNotifications = ProbeCapabilityStatus.GRANTED,
+                            channel = ProbeChannelStatus.BLOCKED,
+                            sessionReadStatus = ProbeSessionReadStatus.CONFIRMED_EMPTY,
+                            storedOccurrenceId = null,
+                        ),
+                    ),
+                    actions = AlertProbeScreenActions(
+                        onStart = {},
+                        onStop = {},
+                        onRequestPermission = {},
+                        onOpenSettings = { settingsRequests++ },
+                        onBack = {},
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("probe-settings").performScrollTo().performClick()
+
+        assertEquals("The explicit settings action must call the fake callback", 1, settingsRequests)
+        assertTrue("The component callback must not publish", platform.published.isEmpty())
+        assertTrue("The component callback must not create or reset the channel", platform.createdChannels.isEmpty())
+        assertEquals("The component callback must not cancel", 0, platform.cancelAttempts.get())
+        assertSame(blockedChannel, platform.channelValue)
+    }
+
+    @Test
+    fun screenKeepsAccessibleActionsAcrossThemesAndLargeText() {
+        val preference = mutableStateOf(ThemePreference.LIGHT)
+        val fontScale = mutableStateOf(1f)
+        var permissionRequests = 0
+        var settingsRequests = 0
+        var stops = 0
+        var backs = 0
+        val state = AlertProbeScreenState(
+            status = ProbeControllerStatus(
+                permission = ProbeCapabilityStatus.DENIED,
+                appNotifications = ProbeCapabilityStatus.UNKNOWN,
+                channel = ProbeChannelStatus.UNKNOWN,
+                sessionReadStatus = ProbeSessionReadStatus.OCCURRENCE_PRESENT,
+                storedOccurrenceId = UUID.randomUUID().toString(),
+            ),
+            showPermissionAction = true,
+        )
+        compose.activity.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(390.dp, 844.dp)) then
+                    DeviceConfigurationOverride.FontScale(fontScale.value),
+            ) {
+                MonitorTheme(preference.value) {
+                    AlertProbeScreen(
+                        state = state,
+                        actions = AlertProbeScreenActions(
+                            onStart = {},
+                            onStop = { stops++ },
+                            onRequestPermission = { permissionRequests++ },
+                            onOpenSettings = { settingsRequests++ },
+                            onBack = { backs++ },
+                        ),
+                    )
+                }
+            }
+        }
+
+        for (theme in listOf(ThemePreference.LIGHT, ThemePreference.DARK)) {
+            for (scale in listOf(1f, 2f)) {
+                compose.runOnIdle {
+                    preference.value = theme
+                    fontScale.value = scale
+                }
+                compose.onNodeWithTag("probe-screen-title")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                compose.onNodeWithText("Dados sintéticos — não é seu saldo")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                compose.onNodeWithTag("probe-start").assertIsNotEnabled()
+                compose.onNodeWithTag("probe-stop")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertHasClickAction()
+                    .assertHeightIsAtLeast(48.dp)
+                compose.onNodeWithTag("probe-permission")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertHasClickAction()
+                compose.onNodeWithTag("probe-settings")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertHasClickAction()
+                compose.onNodeWithTag("probe-back")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                    .assertHasClickAction()
+                compose.onNodeWithText("Permissão de notificações: não concedida.")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+                compose.onNodeWithText("Não foi possível consultar o canal de notificações.")
+                    .performScrollTo()
+                    .assertIsDisplayed()
+            }
+        }
+
+        compose.onNodeWithTag("probe-stop").performScrollTo().performClick()
+        compose.onNodeWithTag("probe-permission").performScrollTo().performClick()
+        compose.onNodeWithTag("probe-settings").performScrollTo().performClick()
+        compose.onNodeWithTag("probe-back").performScrollTo().performClick()
+        assertEquals(1, stops)
+        assertEquals(1, permissionRequests)
+        assertEquals(1, settingsRequests)
+        assertEquals(1, backs)
+        compose.onNodeWithText("teste passou", ignoreCase = true).assertIsNotDisplayed()
+    }
+
+    @Test
+    fun fullScreenOptionStartsOffAndExplicitFakeSettingsReturnIsRequeriedOnResume() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.DENIED
+        fullScreenAccess.onOpenSettings = {
+            fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        }
+
+        compose.onNodeWithText("Tentar tela cheia neste teste")
+            .performScrollTo()
+            .assertIsDisplayed()
+        compose.onNodeWithTag("probe-full-screen-option")
+            .assertIsOff()
+            .performClick()
+            .assertIsOn()
+            .performClick()
+            .assertIsOff()
+        compose.onNodeWithText("Acesso a tela cheia: não concedido. A notificação normal e a ação Parar continuam disponíveis.")
+            .performScrollTo()
+            .assertIsDisplayed()
+
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            compose.onNodeWithTag("probe-full-screen-settings").performScrollTo().performClick()
+            assertEquals(1, fullScreenAccess.settingsOpens)
+            compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            compose.activityRule.scenario.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED)
+            compose.onNodeWithText("Acesso a tela cheia: disponível; isso não confirma que o Android exibirá a atividade.")
+                .performScrollTo()
+                .assertIsDisplayed()
+        } else {
+            compose.onNodeWithTag("probe-full-screen-settings").assertDoesNotExist()
+        }
+        compose.onNodeWithTag("probe-start").performScrollTo().performClick()
+        compose.waitUntil(5_000) { platform.published.size == 1 }
+        assertNull(platform.published.single().second.fullScreenIntent)
+        assertTrue("Tests never open real Android settings", platform.published.isNotEmpty())
+    }
+
+    @Test
+    fun explicitDelayedTapCanBeCancelledAndNeverPublishesOnItsOwn() {
+        compose.onNodeWithTag("probe-delayed-start").performScrollTo().performClick()
+        assertEquals(1, delayScheduler.entries.size)
+        assertTrue(platform.published.isEmpty())
+        compose.onNodeWithTag("probe-cancel-delayed-start").performScrollTo().performClick()
+        val cancelled = delayScheduler.entries.single()
+        assertTrue(cancelled.cancelled)
+        cancelled.action()
+        assertTrue(platform.published.isEmpty())
+    }
+
+    @Test
+    fun presentationStopControlUsesTheMatchingControllerStopWithoutStartingAgain() {
+        val controller = testController()
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val state = AlertProbeScreenState(
+            status = controller.readStatus(),
+            presentationMode = true,
+        )
+        var stopResult = false
+        compose.activity.setContent {
+            MonitorTheme {
+                AlertProbeScreen(
+                    state = state,
+                    actions = AlertProbeScreenActions(
+                        onStart = { error("presentation must not start") },
+                        onStop = { stopResult = controller.stop(occurrenceId) },
+                        onRequestPermission = { error("presentation must not request permission") },
+                        onOpenSettings = { error("presentation must not open settings") },
+                        onBack = { error("presentation must not navigate") },
+                    ),
+                )
+            }
+        }
+        compose.onNodeWithTag("probe-presentation-stop")
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .performClick()
+        compose.onNodeWithTag("probe-start").assertDoesNotExist()
+        compose.onNodeWithTag("probe-settings").assertDoesNotExist()
+        compose.onNodeWithTag("probe-permission").assertDoesNotExist()
+        compose.onNodeWithTag("probe-back").assertDoesNotExist()
+
+        assertTrue(stopResult)
+        assertNull(store.currentOccurrenceId())
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals(1, platform.published.size)
+    }
+
+    @Test
+    fun currentSessionOnNewIntentShowsStopOnlyPresentationAndValidReentryDoesNotRepublish() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val publishCount = platform.published.size
+
+        deliverNewIntent(showAlertIntent(occurrenceId))
+
+        assertEquals(1, windowPresentation.shows)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+        compose.onNodeWithTag("probe-start").assertDoesNotExist()
+        compose.onNodeWithTag("probe-settings").assertDoesNotExist()
+        compose.onNodeWithTag("probe-permission").assertDoesNotExist()
+        compose.onNodeWithTag("probe-back").assertDoesNotExist()
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+
+        // A stale ID cannot tear down a still-valid presentation.
+        deliverNewIntent(showAlertIntent(UUID.randomUUID().toString()))
+
+        assertEquals(0, windowPresentation.clears)
+        assertEquals(1, windowPresentation.shows)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+        compose.activityRule.scenario.onActivity { assertFalse(it.isFinishing) }
+
+        deliverNewIntent(showAlertIntent(occurrenceId))
+
+        assertEquals("Reentry may refresh presentation but not republish", 2, windowPresentation.shows)
+        assertEquals(publishCount, platform.published.size)
+        assertEquals("Presentation reentry must not cancel", 0, platform.cancelAttempts.get())
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+    }
+
+    @Test
+    fun staleShowIntentOnNewIntentCannotAuthorizePresentationWhenNotPresenting() {
+        val controller = testController()
+        assertEquals(ProbeSubmissionOutcome.ACCEPTED, controller.submitCritical())
+        val currentOccurrenceId = requireNotNull(store.currentOccurrenceId())
+
+        deliverNewIntent(showAlertIntent(UUID.randomUUID().toString()))
+
+        assertEquals(currentOccurrenceId, store.currentOccurrenceId())
+        assertEquals(0, windowPresentation.shows)
+        assertEquals(0, windowPresentation.clears)
+        compose.onNodeWithTag("probe-presentation-stop").assertDoesNotExist()
+        compose.onNodeWithTag("probe-start").assertExists()
+        compose.activityRule.scenario.onActivity { assertFalse(it.isFinishing) }
+        assertEquals(1, platform.published.size)
+        assertEquals(0, platform.cancelAttempts.get())
+    }
+
+    @Test
+    fun replacedSessionMakesOldPresentationLeaveWithoutCancellingReplacement() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val oldOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(oldOccurrenceId))
+        assertEquals(1, windowPresentation.shows)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val replacementId = requireNotNull(store.currentOccurrenceId())
+        assertNotEquals(oldOccurrenceId, replacementId)
+        val cancelAttemptsBeforeStaleIntent = platform.cancelAttempts.get()
+        val publicationsBeforeStaleIntent = platform.published.size
+
+        deliverNewIntent(showAlertIntent(oldOccurrenceId))
+
+        assertEquals("A stale callback must preserve the replacement session", replacementId, store.currentOccurrenceId())
+        assertEquals("A stale callback must not cancel the replacement", cancelAttemptsBeforeStaleIntent, platform.cancelAttempts.get())
+        assertEquals("A stale callback must not republish", publicationsBeforeStaleIntent, platform.published.size)
+        assertEquals(1, windowPresentation.clears)
+        assertEquals(1, windowPresentation.shows)
+        compose.activityRule.scenario.onActivity { assertTrue(it.isFinishing) }
+    }
+
+    @Test
+    fun matchingReceiverStopImmediatelyClosesStillResumedPresentationWithoutExpiry() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(occurrenceId))
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+
+        val activity = compose.activity
+        assertTrue("Presentation must be active before receiver delivery", resumedActivities.contains(activity))
+        val expiry = delayScheduler.entries.single()
+        assertFalse(expiry.cancelled)
+        assertEquals(10_000L, monotonicNow)
+
+        val receiverController = ProbeNotificationController(
+            context = context,
+            store = ProbeSessionStore(context, preferences),
+            platformOverride = platform,
+            fullScreenAccessOverride = fullScreenAccess,
+            monotonicClock = { monotonicNow },
+        )
+        val receiver = ProbeStopReceiver { receiverController }
+        val stopIntent = Intent(context, ProbeStopReceiver::class.java).apply {
+            action = ProbeNotificationController.STOP_ACTION
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+        }
+
+        receiver.onReceive(context, stopIntent)
+        compose.waitForIdle()
+
+        assertEquals("A successful receiver Stop must clear presentation immediately", 1, windowPresentation.clears)
+        assertTrue("The matching presentation Activity must finish", activity.isFinishing)
+        assertTrue("Presentation expiry must be cancelled, not awaited", expiry.cancelled)
+        assertEquals("Receiver Stop must clear the durable occurrence", null, store.currentOccurrenceId())
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals("Receiver Stop must not republish", 1, platform.published.size)
+        assertEquals("The test must not advance to the expiry deadline", 10_000L, monotonicNow)
+    }
+
+    @Test
+    fun failedPresentationStopShowsRetryMessageAndMatchingRetryClosesPresentation() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(occurrenceId))
+        val activity = compose.activity
+        val expiry = delayScheduler.entries.single()
+
+        platform.cancelFailure = IllegalStateException("synthetic presentation cancellation failure")
+        compose.onNodeWithTag("probe-presentation-stop").performClick()
+
+        compose.onNodeWithText("Não foi possível confirmar o cancelamento. Tente novamente pelo botão.")
+            .assertIsDisplayed()
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithTag("probe-start").assertDoesNotExist()
+        compose.onNodeWithTag("probe-settings").assertDoesNotExist()
+        compose.onNodeWithTag("probe-permission").assertDoesNotExist()
+        compose.onNodeWithTag("probe-back").assertDoesNotExist()
+        assertEquals(occurrenceId, store.currentOccurrenceId())
+        assertEquals(0, windowPresentation.clears)
+        assertFalse("Failed cancellation must retain the expiry fallback", expiry.cancelled)
+        assertFalse("Failed cancellation must not finish the Activity", activity.isFinishing)
+        assertTrue(platform.cancelledIds.isEmpty())
+        assertEquals(1, platform.cancelAttempts.get())
+        assertEquals(1, platform.published.size)
+
+        platform.cancelFailure = null
+        compose.onNodeWithTag("probe-presentation-stop").performClick()
+        compose.waitForIdle()
+
+        assertEquals(null, store.currentOccurrenceId())
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals("Retry must not publish another notification", 1, platform.published.size)
+        assertEquals(1, windowPresentation.clears)
+        assertTrue(expiry.cancelled)
+        assertTrue(activity.isFinishing)
+    }
+
+    @Test
+    fun staleReceiverStopCannotCloseOrCancelReplacementPresentation() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val staleOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(staleOccurrenceId))
+        assertEquals(1, windowPresentation.shows)
+
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val currentOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        assertNotEquals(staleOccurrenceId, currentOccurrenceId)
+        deliverNewIntent(showAlertIntent(currentOccurrenceId))
+        val activity = compose.activity
+        val cancellationAttemptsBeforeStaleStop = platform.cancelAttempts.get()
+        val publicationCountBeforeStaleStop = platform.published.size
+
+        val receiverController = ProbeNotificationController(
+            context = context,
+            store = ProbeSessionStore(context, preferences),
+            platformOverride = platform,
+            fullScreenAccessOverride = fullScreenAccess,
+            monotonicClock = { monotonicNow },
+        )
+        ProbeStopReceiver { receiverController }
+            .onReceive(context, stopIntent(staleOccurrenceId))
+        compose.waitForIdle()
+
+        assertEquals(currentOccurrenceId, store.currentOccurrenceId())
+        assertEquals(cancellationAttemptsBeforeStaleStop, platform.cancelAttempts.get())
+        assertEquals(publicationCountBeforeStaleStop, platform.published.size)
+        assertEquals(0, windowPresentation.clears)
+        assertEquals(2, windowPresentation.shows)
+        assertFalse(activity.isFinishing)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+    }
+
+    @Test
+    fun queuedOldStopSignalCannotFinishReplacementPresentation() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val oldOccurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(oldOccurrenceId))
+        val activity = compose.activity
+        val receiverController = ProbeNotificationController(
+            context = context,
+            store = ProbeSessionStore(context, preferences),
+            platformOverride = platform,
+            fullScreenAccessOverride = fullScreenAccess,
+            monotonicClock = { monotonicNow },
+        )
+        val receiver = ProbeStopReceiver { receiverController }
+        var replacementOccurrenceId: String? = null
+
+        compose.activityRule.scenario.onActivity { scenarioActivity ->
+            assertSame(activity, scenarioActivity)
+            receiver.onReceive(context, stopIntent(oldOccurrenceId))
+            assertEquals(null, store.currentOccurrenceId())
+
+            assertEquals(
+                ProbeSubmissionOutcome.ACCEPTED,
+                controller.submitCritical(useFullScreenIntent = true),
+            )
+            replacementOccurrenceId = requireNotNull(store.currentOccurrenceId())
+            assertNotEquals(oldOccurrenceId, replacementOccurrenceId)
+            deliverNewIntentOnActivity(
+                scenarioActivity as AlertProbeActivity,
+                showAlertIntent(requireNotNull(replacementOccurrenceId)),
+            )
+        }
+        compose.waitForIdle()
+
+        val currentOccurrenceId = requireNotNull(replacementOccurrenceId)
+        assertEquals(currentOccurrenceId, store.currentOccurrenceId())
+        assertEquals(0, windowPresentation.clears)
+        assertEquals(2, windowPresentation.shows)
+        assertFalse("A queued stop for the prior ID must not finish the new presentation", activity.isFinishing)
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals("The stale event must not cancel the new notification", 1, platform.cancelAttempts.get())
+        assertEquals("The replacement must be the only second publication", 2, platform.published.size)
+        compose.onNodeWithTag("probe-presentation-stop").assertIsDisplayed()
+    }
+
+    @Test
+    fun destroyedPresentationActivityDoesNotReceiveLaterStopSignal() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        deliverNewIntent(showAlertIntent(occurrenceId))
+        val activity = compose.activity
+        val expiry = delayScheduler.entries.single()
+
+        compose.activityRule.scenario.moveToState(Lifecycle.State.DESTROYED)
+        assertTrue(activity.isDestroyed)
+        assertTrue(expiry.cancelled)
+        assertEquals("Activity destruction clears the presentation once", 1, windowPresentation.clears)
+
+        val stopController = ProbeNotificationController(
+            context = context,
+            store = ProbeSessionStore(context, preferences),
+            platformOverride = platform,
+            fullScreenAccessOverride = fullScreenAccess,
+            monotonicClock = { monotonicNow },
+        )
+        assertTrue(stopController.stop(occurrenceId))
+        instrumentation.runOnMainSync { }
+
+        assertEquals("A destroyed Activity must not receive a later stop callback", 1, windowPresentation.clears)
+        assertTrue(activity.isDestroyed)
+        assertEquals(listOf(ProbeNotificationController.NOTIFICATION_ID), platform.cancelledIds.toList())
+        assertEquals(1, platform.published.size)
+    }
+
+    @Test
+    fun directlyLaunchedCurrentSessionShowsSyntheticPresentationAndExpiresWithoutCancelling() {
+        fullScreenAccess.status = ProbeFullScreenAccessStatus.GRANTED
+        val controller = testController()
+        assertEquals(
+            ProbeSubmissionOutcome.ACCEPTED,
+            controller.submitCritical(useFullScreenIntent = true),
+        )
+        val occurrenceId = requireNotNull(store.currentOccurrenceId())
+        val intent = Intent(context, AlertProbeActivity::class.java).apply {
+            action = ProbeNotificationController.SHOW_ALERT_ACTION
+            data = Uri.parse("monitor-probe://screen/$occurrenceId")
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+
+        // Direct launch validates the Activity handler only; it is not an FSI send or visibility proof.
+        val scenario = ActivityScenario.launch<AlertProbeActivity>(intent)
+        try {
+            scenario.onActivity { assertTrue(it is AlertProbeActivity) }
+            assertEquals(1, windowPresentation.shows)
+            assertEquals("Entry must not republish", 1, platform.published.size)
+            assertNotNull(platform.published.single().second.fullScreenIntent)
+
+            val expiry = delayScheduler.entries.single()
+            assertEquals(ProbeNotificationController.TIMEOUT_AFTER_MILLIS, expiry.delayMillis)
+            monotonicNow += ProbeNotificationController.TIMEOUT_AFTER_MILLIS
+            instrumentation.runOnMainSync { expiry.action() }
+
+            assertEquals(1, windowPresentation.clears)
+            assertEquals(occurrenceId, store.currentOccurrenceId())
+            assertTrue(platform.cancelledIds.isEmpty())
+            val actualFullScreenVisibilityObserved = false
+            assertFalse(actualFullScreenVisibilityObserved)
+        } finally {
+            scenario.close()
+        }
+    }
+
+    private fun showActualSettings() {
+        compose.activity.setContent {
+            MonitorTheme {
+                MonitorSettingsScreen(
+                    state = MonitorUiState(isLoading = false),
+                    actions = MonitorActions(),
+                )
+            }
+        }
+    }
+
+    private fun addProbeActivityMonitor(): Instrumentation.ActivityMonitor =
+        Instrumentation.ActivityMonitor(AlertProbeActivity::class.java.name, null, false).also {
+            instrumentation.addMonitor(it)
+        }
+
+    private fun tapText(text: String) {
+        compose.onNodeWithText(text).performScrollTo().performClick()
+    }
+
+    private fun showAlertIntent(occurrenceId: String) =
+        Intent(context, AlertProbeActivity::class.java).apply {
+            action = ProbeNotificationController.SHOW_ALERT_ACTION
+            data = Uri.parse("monitor-probe://screen/$occurrenceId")
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+
+    private fun deliverNewIntent(intent: Intent) {
+        compose.activityRule.scenario.onActivity { activity ->
+            deliverNewIntentOnActivity(activity as AlertProbeActivity, intent)
+        }
+        compose.waitForIdle()
+    }
+
+    private fun stopIntent(occurrenceId: String) =
+        Intent(context, ProbeStopReceiver::class.java).apply {
+            action = ProbeNotificationController.STOP_ACTION
+            putExtra(ProbeNotificationController.EXTRA_OCCURRENCE_ID, occurrenceId)
+        }
+
+    private fun deliverNewIntentOnActivity(activity: AlertProbeActivity, intent: Intent) {
+        val callback = AlertProbeActivity::class.java
+            .getDeclaredMethod("onNewIntent", Intent::class.java)
+            .apply { isAccessible = true }
+        val originalIntent = Intent(activity.intent)
+        assertFalse(
+            "The SHOW_ALERT intent should differ from ActivityScenario's original launch filter",
+            originalIntent.filterEquals(intent),
+        )
+        try {
+            callback.invoke(activity, intent)
+            val currentIntent = activity.intent
+            val currentMatchesIncoming = currentIntent.filterEquals(intent)
+            val currentMatchesOriginal = currentIntent.filterEquals(originalIntent)
+            assertTrue(
+                "onNewIntent must install the delivered intent before the test restores the launch intent",
+                currentMatchesIncoming,
+            )
+            assertFalse(
+                "The delivered intent filter should differ from the launch filter during callback handling",
+                currentMatchesOriginal,
+            )
+        } finally {
+            // ActivityScenario's lifecycle observer filters by the original launch intent.
+            // Restore this harness state only after exercising onNewIntent, before returning
+            // from the callback; do not alter the Activity's production setIntent behavior.
+            activity.intent = originalIntent
+            val restoredMatchesOriginal = activity.intent.filterEquals(originalIntent)
+            assertTrue("The original ActivityScenario intent filter must be restored", restoredMatchesOriginal)
+        }
+    }
+
+    private fun testController() = ProbeNotificationController(
+        context,
+        store,
+        platform,
+        fullScreenAccessOverride = fullScreenAccess,
+        monotonicClock = { monotonicNow },
+    )
+
+    private fun closeProbeActivities(monitor: Instrumentation.ActivityMonitor) {
+        instrumentation.removeMonitor(monitor)
+        instrumentation.runOnMainSync {
+            openedActivities.forEach { if (!it.isFinishing) it.finish() }
+        }
+    }
+
+    private class FakePlatform : ProbeNotificationPlatform {
+        @Volatile var permission = true
+        @Volatile var appNotificationsEnabled = true
+        @Volatile var channelValue: NotificationChannel? = null
+        @Volatile var permissionFailure: Exception? = null
+        @Volatile var appNotificationsFailure: Exception? = null
+        @Volatile var channelFailure: Exception? = null
+        @Volatile var publishFailure: Exception? = null
+        @Volatile var cancelFailure: Exception? = null
+        val published = CopyOnWriteArrayList<Pair<Int, Notification>>()
+        val createdChannels = CopyOnWriteArrayList<NotificationChannel>()
+        val cancelAttempts = AtomicInteger()
+        val cancelledIds = CopyOnWriteArrayList<Int>()
+
+        override fun permissionGranted(): Boolean {
+            permissionFailure?.let { throw it }
+            return permission
+        }
+        override fun notificationsEnabled(): Boolean {
+            appNotificationsFailure?.let { throw it }
+            return appNotificationsEnabled
+        }
+        override fun channel(): NotificationChannel? {
+            channelFailure?.let { throw it }
+            return channelValue
+        }
+        override fun createChannel(channel: NotificationChannel) {
+            createdChannels += channel
+            channelValue = channel
+        }
+        override fun publish(notificationId: Int, notification: Notification) {
+            publishFailure?.let { throw it }
+            published += notificationId to notification
+        }
+        override fun cancel(notificationId: Int) {
+            cancelAttempts.incrementAndGet()
+            cancelFailure?.let { throw it }
+            cancelledIds += notificationId
+        }
+    }
+
+    private class FakeFullScreenAccess : ProbeFullScreenAccess {
+        var status = ProbeFullScreenAccessStatus.DENIED
+        var settingsOpens = 0
+        var onOpenSettings: (() -> Unit)? = null
+
+        override fun capabilityStatus() = status
+
+        override fun openSettings(activity: Activity): Boolean {
+            settingsOpens++
+            onOpenSettings?.invoke()
+            return true
+        }
+    }
+
+    private class FakeDelayScheduler : ProbeDelayScheduler {
+        val entries = mutableListOf<Entry>()
+
+        override fun schedule(delayMillis: Long, action: () -> Unit): ProbeScheduledTask =
+            Entry(delayMillis, action).also { entries += it }
+
+        class Entry(
+            val delayMillis: Long,
+            val action: () -> Unit,
+        ) : ProbeScheduledTask {
+            var cancelled = false
+            override fun cancel() {
+                cancelled = true
+            }
+        }
+    }
+
+    private class FakeWindowPresentation : ProbeWindowPresentation {
+        var shows = 0
+        var clears = 0
+        override fun show() {
+            shows++
+        }
+        override fun clear() {
+            clears++
+        }
+    }
+
+    private class ReadFailingPreferences(
+        private val delegate: android.content.SharedPreferences,
+    ) : android.content.SharedPreferences by delegate {
+        @Volatile
+        var failStringReads = false
+
+        override fun getString(key: String, defValue: String?): String? {
+            check(!failStringReads) { "synthetic session read failure" }
+            return delegate.getString(key, defValue)
+        }
+    }
+}

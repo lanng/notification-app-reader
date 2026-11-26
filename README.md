@@ -2,8 +2,13 @@
 
 Aplicativo Android pessoal para acompanhar uma **estimativa** do saldo de uma
 conta exclusiva para C6 Tag, usando notificações reconhecidas do C6.
-Não consulta o saldo no banco, não pede senha, não realiza recargas e não usa
-backend ou internet. Não é um produto oficial do banco.
+Não consulta o saldo no banco, não pede senha, não realiza recargas e não envia
+avisos bancários nem dados financeiros a um servidor. O monitor local continua
+independente de login e de rede. Não é um produto oficial do banco.
+
+**Documentação de trabalho:** `docs/` é mantida apenas localmente e ignorada pelo
+Git. As referências a essa pasta abaixo são locais/históricas; esses arquivos
+não acompanham novos clones nem são necessários para compilar ou executar testes.
 
 **Estado de desenvolvimento:** Tarefas 1–8 implementadas e revisadas, incluindo
 histórico paginado, pendências e ajustes detalhados. A integração automatizada
@@ -30,6 +35,37 @@ Android, com recursos adaptativos e fallbacks por densidade, sem substituir o
 112 JVM / 150 instrumentados aprovados; lint 0 erros / 14 avisos documentados.
 Fonte, reprodução, prévias e hash em
 [`docs/testing/launcher-artwork-results.md`](docs/testing/launcher-artwork-results.md).
+
+**Fundação remota:** há fixtures e uma entrada manual em Ajustes para uma
+notificação crítica sintética; isso não implementa FCM. A opção de tela cheia
+começa desligada; ativá-la exige consentimento explícito e acesso especial
+concedido separadamente, com fallback de notificação comum. O release exclui a
+sonda. Áudio, visibilidade e duração real não foram comprovados em aparelho, e
+não há garantia de áudio por 30 segundos.
+
+A tela **Acesso remoto** em Ajustes liga, por ação explícita, Credential Manager,
+Google/Firebase e os controles de consulta e ativação do host. Abrir o app ou
+usar Visão geral, Histórico e Ajustes não exige login nem depende da rede; isso
+não significa que o SDK Firebase nunca inicialize ou faça seu trabalho normal
+de configuração. Entrar com Google só produz uma identidade candidata. A
+consulta do proprietário é outra ação, e ativar/substituir um host exige uma
+confirmação separada com aviso quando já há outro host. Nenhum fluxo real da UI
+Google, consulta de produção ou ativação ao vivo foi executado. Os testes Compose
+foram apenas compilados; isso não valida a UI real do provedor. Instalação em
+aparelho e ativação ao vivo exigem consentimentos separados.
+
+O acesso remoto usa um serviço HTTPS configurado pelo responsável. Não envia nem
+sincroniza saldo, referências, histórico, capturas ou agendamentos financeiros
+locais; essa fundação não usa FCM. O UID Firebase é somente uma identidade
+candidata: o responsável deve autorizar manualmente o UID correto no servidor.
+Não há cadastro público, regra de primeiro usuário, autorização por e-mail nem
+revogação remota de uma instalação Sanctum oferecida pelo app.
+Para preparar a configuração Firebase local necessária ao build, consulte
+[Configuração local do Firebase](#configuração-local-do-firebase).
+Veja também [Origem e configuração privada do serviço do proprietário](#origem-e-configuração-privada-do-serviço-do-proprietário).
+Roteiro físico e evidências
+locais: [`docs/testing/critical-alert-probe-checklist.md`](docs/testing/critical-alert-probe-checklist.md)
+e [`docs/testing/remote-mobile-foundation-results.md`](docs/testing/remote-mobile-foundation-results.md).
 
 ## Como funciona
 
@@ -64,6 +100,62 @@ Comunicação com outros aparelhos não está implementada nesta versão.
 - Gradle Wrapper 9.1.0. As versões de plugins e bibliotecas estão fixadas em
   `gradle/libs.versions.toml`.
 - Não é necessário instalar Gradle globalmente.
+
+## Configuração local do Firebase
+
+O plugin Google Services precisa do arquivo local `app/google-services.json`
+para gerar os recursos Firebase usados pelo build e pelos testes do app. O clone
+não inclui esse arquivo porque ele é intencionalmente ignorado pelo Git. Antes
+dos comandos Gradle abaixo, prepare uma configuração do projeto Firebase
+`tag-alert-ba5d8` para o registro Android com `applicationId`
+`br.com.tagalert.app`.
+
+Com acesso autorizado, abra o Firebase Console e vá a **Project settings >
+General > Your apps**. Selecione o app Android registrado com esse
+`applicationId`, baixe o `google-services.json` e coloque-o em
+`app/google-services.json`. Se já houver um arquivo local, não o sobrescreva;
+confirme com o responsável pelo projeto. Sem acesso, peça a configuração ao
+responsável. Não crie um JSON fictício nem publique ou compartilhe o conteúdo
+ou as chaves do arquivo. O comando somente de leitura
+`git check-ignore -v app/google-services.json` confirma que ele fica fora do
+versionamento.
+
+O plugin gera `default_web_client_id` a partir da configuração; o
+`GoogleCredentialRequestor` usa esse recurso como web client ID na solicitação
+Google. Esse ID não é o OAuth client Android; não cole tokens manualmente. O
+`google-services.json` é configuração Firebase de cliente, não credencial
+privada de service account/Admin SDK. Nunca inclua JSON de service account nem
+chave privada no app Android.
+
+O arquivo é pré-requisito do build, não prova de autorização do proprietário.
+O monitor local continua utilizável sem login e offline. A UI remota foi ligada
+por controles explícitos, mas não foi validada com uma conta Google real.
+
+## Origem e configuração privada do serviço do proprietário
+
+`OWNER_API_ORIGIN` fica vazia por padrão. Para habilitar consultas remotas, o
+responsável pelo ambiente deve fornecer uma origem HTTPS autorizada no comando
+Gradle, por exemplo `-PownerApiOrigin=https://<origem-autorizada>`. Não adivinhe
+domínio, use IP de produção ou inclua caminho, query, fragmento, usuário,
+senha, token ou outra credencial na URL. Sem uma origem HTTPS válida, a UI
+informa que a API não está configurada e mantém indisponíveis consulta e
+ativação.
+
+A configuração de verificação Firebase do servidor é separada: a verificação
+fica desligada por padrão (`access_pairing.firebase.enabled`) e a credencial
+privada apontada por `access_pairing.firebase.credentials_path`, além de
+`access_pairing.firebase.connect_timeout` e
+`access_pairing.firebase.timeout`, pertence somente ao ambiente do servidor.
+Não copie credenciais privadas para o Android, `google-services.json`, Gradle,
+`local.properties`, logs ou repositório. Um erro de verificação indisponível
+não prova que um UID está ausente ou não autorizado.
+
+Somente após consentimento separado para um futuro login Google real, confira
+o projeto Firebase e o UID exibidos e confirme o UID correto com o responsável
+por um canal privado aprovado. O botão copia apenas o UID — nunca um token. A
+autorização manual no servidor é um checkpoint separado; não autorize o
+primeiro usuário automaticamente. Também são necessários consentimentos
+separados antes de instalar em aparelho ou tentar ativação real de host.
 
 ## Comandos no Windows
 
@@ -130,8 +222,12 @@ O APK de depuração, quando o build concluir, fica em
 
 ## Configuração local
 
-O nome de pacote deste app é `br.com.c6tag.diagnostico`. O pacote de origem do
-C6 tem precedência `-Pc6PackageName=...`, depois `c6.packageName` em
+A configuração local do Firebase necessária antes dos comandos Gradle está em
+[Configuração local do Firebase](#configuração-local-do-firebase).
+
+O `applicationId` deste app para instalação é `br.com.tagalert.app`; o namespace
+Android interno continua `br.com.c6tag.diagnostico`. O pacote de origem do C6 tem
+precedência `-Pc6PackageName=...`, depois `c6.packageName` em
 `local.properties`, e por fim vazio. Uma opção `-P` explicitamente vazia também
 prevalece e mantém a captura desativada. Valor vazio significa **off**; nunca
 significa observar todos os pacotes.
@@ -218,9 +314,13 @@ instalação do usuário. XMLs e limites da evidência estão no relatório do m
 
 Roteiro físico ainda não executado:
 [`docs/testing/monitor-local-s23-checklist.md`](docs/testing/monitor-local-s23-checklist.md).
-Atualizar preservando dados usa o mesmo applicationId
-`br.com.c6tag.diagnostico`, versão 1.1/código 2, sem desinstalar ou limpar dados.
-Autorizações antigas não substituem o consentimento para essa atualização.
+A nova identidade instalada `br.com.tagalert.app` é diferente do pacote de versões
+anteriores (`br.com.c6tag.diagnostico`). O Android não a tratará como atualização:
+ela será instalada separadamente e não herdará os dados nem as permissões ou
+concessões da versão anterior. A versão antiga e seus dados só mudam por uma ação
+separada do usuário. Qualquer instalação física continua exigindo autorização
+explícita; confira novamente e conceda manualmente as permissões necessárias para
+a nova instalação.
 
 ## Desenvolvimento e Git
 

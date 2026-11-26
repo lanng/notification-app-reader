@@ -3,13 +3,11 @@ package br.com.c6tag.diagnostico.ui.monitor
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import br.com.c6tag.diagnostico.R
 
@@ -29,26 +27,38 @@ internal fun BalanceReferenceScreen(state: MonitorUiState, actions: ReferenceAct
             MonitorCaptureStatus(state, MonitorActions(onOpenCaptureSettings = actions.onOpenCaptureSettings))
         }
         item {
-            OutlinedTextField(
-                value = draft.balance, onValueChange = actions.onBalance,
+            BrlMoneyField(
+                value = draft.balance,
+                onValueChange = actions.onBalance,
                 label = { Text(stringResource(R.string.monitor_reference_balance_input)) },
-                supportingText = { Text(stringResource(R.string.monitor_reference_money_help)) },
-                isError = draft.invalidInput, enabled = !state.isBusy && !draft.sessionUnavailable,
+                supportingText = {
+                    Text(stringResource(
+                        if (draft.balanceInputError) R.string.monitor_money_input_invalid
+                        else R.string.monitor_reference_money_help,
+                    ))
+                },
+                isError = draft.invalidInput || draft.balanceInputError,
+                enabled = !state.isBusy && !draft.sessionUnavailable,
+                identityKey = draft.session.id,
                 modifier = Modifier.fillMaxWidth().testTag("reference-balance"),
-                // Decimal IMEs need not expose a minus key. Text permits signed BRL input;
-                // validation still rejects symbols, exponents and excess decimal places.
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, autoCorrectEnabled = false),
-                singleLine = true,
             )
         }
         item {
-            OutlinedTextField(
-                value = draft.limit, onValueChange = actions.onLimit,
+            BrlMoneyField(
+                value = draft.limit,
+                onValueChange = actions.onLimit,
                 label = { Text(stringResource(R.string.monitor_reference_limit_input)) },
-                isError = draft.invalidInput, enabled = !state.isBusy && !draft.sessionUnavailable,
+                supportingText = {
+                    if (draft.limitInputError) {
+                        Text(stringResource(R.string.monitor_money_input_invalid))
+                    } else {
+                        Text(stringResource(R.string.monitor_settings_limit_help))
+                    }
+                },
+                isError = draft.invalidInput || draft.limitInputError,
+                enabled = !state.isBusy && !draft.sessionUnavailable,
+                identityKey = draft.session.id,
                 modifier = Modifier.fillMaxWidth().testTag("reference-limit"),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                singleLine = true,
             )
         }
         item {
@@ -67,7 +77,7 @@ internal fun BalanceReferenceScreen(state: MonitorUiState, actions: ReferenceAct
                 onClick = actions.onReview, enabled = !state.isBusy && !draft.sessionUnavailable,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.monitor_reference_review)) }
-            TextButton(onClick = actions.onCancel, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = actions.onCancel, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.monitor_reference_cancel))
             }
         }

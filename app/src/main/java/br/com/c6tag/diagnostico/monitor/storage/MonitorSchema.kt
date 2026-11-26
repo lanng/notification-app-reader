@@ -125,6 +125,9 @@ internal object MonitorSchema {
             intent_requested_at_ms INTEGER,
             last_submission_outcome TEXT
                 CHECK(last_submission_outcome IN('ACCEPTED','PERMISSION_DENIED','CHANNEL_BLOCKED','FAILED')),
+            emission_count INTEGER NOT NULL DEFAULT 0 CHECK(emission_count>=0),
+            critical_alerted INTEGER NOT NULL DEFAULT 0 CHECK(critical_alerted IN(0,1)),
+            intent_critical INTEGER NOT NULL DEFAULT 0 CHECK(intent_critical IN(0,1)),
             CHECK((intent_version IS NULL)=(intent_requested_at_ms IS NULL))
         )""",
         """CREATE UNIQUE INDEX monitor_one_active_alert

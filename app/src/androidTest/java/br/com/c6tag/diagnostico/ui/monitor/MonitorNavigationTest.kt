@@ -3,12 +3,18 @@ package br.com.c6tag.diagnostico.ui.monitor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import android.text.InputType
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import br.com.c6tag.diagnostico.monitor.*
+import br.com.c6tag.diagnostico.remote.access.RemoteAccessUiState
+import br.com.c6tag.diagnostico.ui.AuthorizationStatus
+import br.com.c6tag.diagnostico.ui.remote.RemoteAccessScreen
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import org.junit.Assert.*
 import org.junit.Rule
@@ -17,7 +23,7 @@ import org.junit.Test
 class MonitorNavigationTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun balanceEditorRequestsAnInputTypeThatAllowsTypingANegativeAmount() {
+    @Test fun balanceEditorRequestsUnsignedNumericInputAndInterpretsDigitsAsCents() {
         val ui = mutableStateOf(MonitorUiState(
             referenceDraft = BalanceDraft(ReferenceSession("signed-input", 1L, 0L, null)),
             isLoading = false,
@@ -27,7 +33,9 @@ class MonitorNavigationTest {
             host = LocalView.current
             MonitorTheme {
                 BalanceReferenceScreen(ui.value, ReferenceActions(
-                    onBalance = { value -> ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = value)) },
+                    onBalance = { change ->
+                        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = change.canonicalText))
+                    },
                 ))
             }
         }
@@ -36,29 +44,47 @@ class MonitorNavigationTest {
             val info = EditorInfo()
             assertNotNull(host!!.onCreateInputConnection(info))
             val inputClass = info.inputType and InputType.TYPE_MASK_CLASS
-            assertTrue("The IME must allow a minus sign, not unsigned numeric-only input",
-                inputClass == InputType.TYPE_CLASS_TEXT ||
-                    (inputClass == InputType.TYPE_CLASS_NUMBER && info.inputType and InputType.TYPE_NUMBER_FLAG_SIGNED != 0))
+            assertEquals(InputType.TYPE_CLASS_NUMBER, inputClass)
+            assertEquals(0, info.inputType and InputType.TYPE_NUMBER_FLAG_SIGNED)
         }
-        compose.onNodeWithTag("reference-balance").performTextInput("-20,25")
-        assertEquals(-2_025L, parseBrlInput(ui.value.referenceDraft!!.balance))
+        compose.onNodeWithTag("reference-balance").performTextInput("2025")
+        assertEquals(2_025L, parseBrlInput(ui.value.referenceDraft!!.balance))
     }
 
     @Test fun formCanOpenCaptureSettingsWithoutDiscardingReferenceSession() {
         var captureRequests = 0
+        var density = 1f
+        val ui = mutableStateOf(
+            MonitorUiState(
+                isLoading = false,
+                authorization = AuthorizationStatus.NOT_AUTHORIZED,
+                referenceDraft = BalanceDraft(ReferenceSession("session", 1L, 0L, null)),
+            ),
+        )
         compose.setContent {
+            density = LocalDensity.current.density
             MonitorTheme {
                 MonitorRoot(
-                    MonitorUiState(
-                        isLoading = false, referenceDraft = BalanceDraft(ReferenceSession("session", 1L, 0L, null)),
-                    ), MonitorActions(onOpenCaptureSettings = { captureRequests++ }),
+                    ui.value,
+                    MonitorActions(onOpenCaptureSettings = { captureRequests++ }),
                     ReferenceActions(), onEnableNotices = {}, diagnostic = {},
                 )
             }
         }
         compose.onNodeWithTag("reference-scroll").performScrollToNode(hasText("Autorizar captura"))
-        compose.onNodeWithText("Autorizar captura").performClick()
+        val authorizeCapture = compose.onNodeWithText("Autorizar captura")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assertIsEnabled()
+            .assertHasClickAction()
+        val targetHeight = authorizeCapture.fetchSemanticsNode().touchBoundsInRoot.height
+        assertTrue(
+            "Capture settings target=$targetHeight px, minimum=${48f * density} px",
+            targetHeight + 0.001f >= 48f * density,
+        )
+        authorizeCapture.performClick()
         assertEquals(1, captureRequests)
+        ui.value = ui.value.copy(authorization = AuthorizationStatus.AUTHORIZED)
+        compose.onNodeWithText("Autorizar captura").assertDoesNotExist()
     }
 
     @Test fun tabsKeepDiagnosticUnderSettingsAndNeverRequestPermissionOnLaunch() {
@@ -97,15 +123,28 @@ class MonitorNavigationTest {
     }
 
     @Test fun settingsExposeOnlySupportedReminderIntervalsAndSeparatePlatformLinks() {
+        var noticeSettingsOpens = 0
+        var density = 1f
         compose.setContent {
+            density = LocalDensity.current.density
             MonitorTheme {
                 MonitorRoot(
                     MonitorUiState(isLoading = false, notices = NoticeAccess.SILENT),
-                    MonitorActions(), ReferenceActions(), onEnableNotices = {}, diagnostic = {},
+                    MonitorActions(onOpenNoticeSettings = { noticeSettingsOpens++ }),
+                    ReferenceActions(), onEnableNotices = {}, diagnostic = {},
                 )
             }
         }
         compose.onNodeWithTag("tab-settings").performClick()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-monitor-access"))
+        compose.onNodeWithText("Monitor e acesso").assertIsDisplayed()
+        compose.onNodeWithTag("open-remote-access").assertIsDisplayed()
+        compose.onNodeWithTag("settings-reference").assertIsDisplayed()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-appearance"))
+        compose.onNodeWithText("Aparência").assertIsDisplayed()
+        compose.onNodeWithTag("theme-system").assertIsDisplayed()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-local-alerts"))
+        compose.onNodeWithText("Alertas locais").assertIsDisplayed()
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-limit"))
         compose.onNodeWithTag("settings-limit").assertIsDisplayed()
         compose.onNodeWithTag("repeat-15").assertIsDisplayed()
@@ -117,9 +156,22 @@ class MonitorNavigationTest {
         compose.onNodeWithTag("pause-60").assertExists()
         compose.onNodeWithTag("pause-120").assertIsDisplayed()
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Abrir ajustes de avisos e som"))
-        compose.onNodeWithText("Abrir ajustes de avisos e som").assertExists()
+        val noticeSettingsAction = compose.onNodeWithTag("settings-notice-settings")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .assertIsEnabled()
+            .assertHasClickAction()
+        val targetHeight = noticeSettingsAction.fetchSemanticsNode().touchBoundsInRoot.height
+        assertTrue(
+            "Avisos settings target=$targetHeight px, minimum=${48f * density} px",
+            targetHeight + 0.001f >= 48f * density,
+        )
+        noticeSettingsAction.performClick()
+        assertEquals(1, noticeSettingsOpens)
         compose.onNodeWithTag("settings-scroll").performScrollToNode(hasText("Autorizar captura"))
         compose.onNodeWithText("Autorizar captura").assertExists()
+        compose.onNodeWithTag("settings-scroll").performScrollToNode(hasTestTag("settings-permissions"))
+        compose.onNodeWithText("Permissões e diagnóstico").assertIsDisplayed()
+        compose.onNodeWithText("Histórico financeiro").assertDoesNotExist()
     }
 
     @Test fun financialHistoryDetailReturnsToItsFilteredList() {
@@ -187,13 +239,27 @@ class MonitorNavigationTest {
         compose.setContent {
             MonitorTheme {
                 BalanceReferenceScreen(ui.value, ReferenceActions(
-                    onBalance = { value -> ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = value)) },
-                    onLimit = { value -> ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limit = value)) },
+                    onBalance = { change ->
+                        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(balance = change.canonicalText))
+                    },
+                    onLimit = { change ->
+                        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limit = change.canonicalText))
+                    },
                     onReview = { ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(confirmationVisible = true)) },
                     onConfirm = { commits++ }, onCancel = { cancels++ },
                 ))
             }
         }
+        val limitHelp = "Digite os algarismos; os centavos são ajustados automaticamente. O limite não pode ser negativo."
+        val invalidMoneyHelp = "Não foi possível aplicar esse valor. Corrija os algarismos; o último valor válido foi mantido."
+        compose.onNodeWithTag("reference-scroll").performScrollToNode(hasText(limitHelp))
+        compose.onNodeWithText(limitHelp).assertIsDisplayed()
+        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limitInputError = true))
+        compose.onNodeWithTag("reference-scroll").performScrollToNode(hasText(invalidMoneyHelp))
+        compose.onNodeWithText(invalidMoneyHelp).assertIsDisplayed()
+        compose.onNodeWithText(limitHelp).assertDoesNotExist()
+        ui.value = ui.value.copy(referenceDraft = ui.value.referenceDraft!!.copy(limitInputError = false))
+        compose.onNodeWithTag("reference-scroll").performScrollToNode(hasTestTag("reference-balance"))
         compose.onNodeWithTag("reference-balance").performTextInput("500,00")
         compose.onNodeWithTag("reference-limit").performTextReplacement("300,00")
         assertEquals("500,00", ui.value.referenceDraft!!.balance)
@@ -211,5 +277,64 @@ class MonitorNavigationTest {
         compose.onNodeWithText("Revisar saldo").assertIsNotEnabled()
         compose.onNodeWithText("Cancelar conferência").performClick()
         assertEquals(1, cancels)
+    }
+
+    @Test fun remoteAccessSubpageKeepsSingleBackControlReturningToMainThenSettings() {
+        var remoteOpens = 0
+        var supportOpens = 0
+        compose.setContent {
+            MonitorTheme {
+                MonitorRoot(
+                    state = MonitorUiState(isLoading = false),
+                    actions = MonitorActions(),
+                    referenceActions = ReferenceActions(),
+                    onEnableNotices = {},
+                    diagnostic = {},
+                    onOpenRemoteAccess = { remoteOpens++ },
+                    remoteAccess = { onClose ->
+                        RemoteAccessScreen(
+                            state = RemoteAccessUiState(configuredOrigin = "https://api.example.test"),
+                            onSignIn = {},
+                            onReauthenticate = {},
+                            onDiscover = {},
+                            onConfirmActivation = { _, _ -> },
+                            onCancelConfirmation = {},
+                            onSignOut = {},
+                            onCopyUid = {},
+                            onClose = onClose,
+                            onOpenSupportPairing = { supportOpens++ },
+                        )
+                    },
+                )
+            }
+        }
+
+        compose.onNodeWithTag("tab-settings").performClick()
+        compose.onNodeWithTag("settings-scroll")
+            .performScrollToNode(hasTestTag("open-remote-access"))
+        compose.onNodeWithTag("open-remote-access").performClick()
+
+        assertEquals(1, remoteOpens)
+        assertEquals(0, supportOpens)
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(1)
+        compose.onNodeWithTag("remote-back-main").assertDoesNotExist()
+
+        compose.onNodeWithTag("remote-access-scroll")
+            .performScrollToNode(hasTestTag("remote-open-support-pairing"))
+        compose.onNodeWithTag("remote-open-support-pairing").performClick()
+
+        assertEquals(1, supportOpens)
+        compose.onAllNodesWithText("Voltar ao acesso remoto").assertCountEquals(1)
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(0)
+
+        compose.onNodeWithTag("remote-back-main").performClick()
+        assertEquals(1, remoteOpens)
+        assertEquals(1, supportOpens)
+        compose.onAllNodesWithText("Voltar aos ajustes").assertCountEquals(1)
+        compose.onNodeWithTag("remote-back-main").assertDoesNotExist()
+
+        compose.onNodeWithTag("remote-back-settings").performClick()
+        compose.onNodeWithText("Monitor e acesso").assertIsDisplayed()
+        compose.onNodeWithTag("tab-settings").assertIsSelected()
     }
 }

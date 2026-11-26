@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".CollectorApplication"
@@ -31,5 +36,26 @@
         <receiver
             android:name=".monitor.alerts.AlertActionReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".remote.sync.SupportAlertActionReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".remote.alarm.CriticalAlertStopReceiver"
+            android:exported="false" />
+        <activity
+            android:name=".remote.alarm.CriticalAlertActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:turnScreenOn="true" />
+        <service
+            android:name=".remote.sync.SupportAlertMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

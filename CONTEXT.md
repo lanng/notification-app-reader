@@ -55,12 +55,13 @@ recuperação reconhecida do saldo.
 _Evitar_: Uma notificação isolada, uma tentativa de aviso.
 
 **Ciência**:
-Interação explícita do responsável para pausar temporariamente os lembretes do
-ciclo atual; não significa que houve recarga.
+Interação explícita do responsável principal para pausar temporariamente apenas
+seus lembretes do ciclo atual; não significa que houve recarga.
 _Evitar_: Problema resolvido, saldo recuperado, leitura garantida.
 
 **Pausa**:
-Período temporário sem novos lembretes, sem encerrar o ciclo de alerta.
+Período temporário sem novos lembretes para o responsável que deu ciência,
+sem encerrar o ciclo de alerta nem pausar os responsáveis de apoio.
 _Evitar_: Encerramento, recuperação.
 
 **Recuperação do saldo**:
@@ -73,6 +74,44 @@ Pessoa cujo aparelho acompanha os avisos bancários e recebe o primeiro alerta.
 _Evitar_: Conta compartilhada, acesso bancário dos responsáveis de apoio.
 
 **Responsável de apoio**:
-Pessoa prevista para receber escalonamento de alertas em uma evolução futura,
-sem precisar de acesso à conta bancária do principal.
+Pessoa autorizada a consultar a estimativa compartilhada e receber escalonamento
+de alertas, sem editar o acompanhamento nem acessar a conta bancária do principal.
 _Evitar_: Titular adicional, destinatário já conectado nesta versão.
+
+**Host**:
+Aparelho principal ativo que acompanha os avisos bancários e origina a estimativa
+de um monitor; não é a identidade permanente do proprietário.
+_Evitar_: Servidor, conta Google, banco como sinônimos de host.
+
+**Escalonamento**:
+Extensão dos avisos de um nível aos responsáveis de apoio depois da precedência
+do host; não exige comprovação de leitura do primeiro aviso.
+_Evitar_: Encaminhamento bancário, leitura confirmada.
+
+**Nível de atenção**:
+Faixa em que a estimativa está abaixo do limite de atenção, mas não abaixo da
+metade desse limite.
+_Evitar_: Saldo normal, saldo oficial.
+
+**Nível crítico**:
+Faixa em que a estimativa está abaixo da metade do limite de atenção.
+_Evitar_: Saldo negativo como única condição crítica.
+
+**Agravamento**:
+Entrada em um nível mais crítico, distinta de um lembrete do mesmo nível.
+_Evitar_: Nova movimentação, nova recarga, repetição como sinônimos de agravamento.
+
+**Parar som**:
+Interrupção somente do toque do aviso atual, sem registrar ciência, encerrar
+o ciclo ou cancelar os próximos lembretes.
+_Evitar_: Resolver, confirmar recarga, pausar o acompanhamento.
+
+**Último saldo conhecido**:
+Estimativa anteriormente recebida do host, acompanhada de sua atualização;
+não representa confirmação do saldo no momento da consulta.
+_Evitar_: Saldo atual garantido, saldo bancário consultado.
+
+**Sem contato recente com o host**:
+Ausência de confirmação recente de comunicação com o host, diferente de ausência
+de movimentações e sem comprovar por si só que o aparelho esteja desligado.
+_Evitar_: Conta sem movimentação, saldo recuperado, desconexão comprovada.

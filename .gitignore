@@ -3,8 +3,11 @@
 .idea/
 .worktrees/
 .superpowers/
+# Local plans, research and verification notes are not versioned.
+/docs/
 **/build/
 local.properties
+/app/google-services.json
 *.iml
 *.apk
 *.aab

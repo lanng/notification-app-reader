@@ -4,23 +4,38 @@ import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.Manifest
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
+import android.os.PersistableBundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -33,9 +48,39 @@ import br.com.c6tag.diagnostico.ui.DiagnosticViewModel
 import br.com.c6tag.diagnostico.ui.monitor.*
 import br.com.c6tag.diagnostico.ui.theme.MonitorTheme
 import br.com.c6tag.diagnostico.monitor.alerts.MonitorNotifier
+import br.com.c6tag.diagnostico.remote.access.GoogleCredentialRequestor
+import br.com.c6tag.diagnostico.remote.access.RemoteAccessViewModel
+import br.com.c6tag.diagnostico.remote.access.SecretValue
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissionState
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissions
+import br.com.c6tag.diagnostico.remote.sync.SupportAlertNotifier
+import br.com.c6tag.diagnostico.ui.remote.GuestMonitorActions
+import br.com.c6tag.diagnostico.ui.remote.GuestMonitorRoot
+import br.com.c6tag.diagnostico.ui.remote.RemoteAccessScreen
+
+internal fun buildSensitiveInvitationClipData(
+    label: String,
+    secret: SecretValue,
+): ClipData {
+    val clipData = ClipData.newPlainText(label, secret.reveal())
+    val extras = PersistableBundle().apply {
+        val sensitiveKey = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ClipDescription.EXTRA_IS_SENSITIVE
+        } else {
+            "android.content.extra.IS_SENSITIVE"
+        }
+        putBoolean(sensitiveKey, true)
+    }
+    clipData.description.extras = extras
+    return clipData
+}
 
 class MainActivity : ComponentActivity() {
     private var noticePermissionRequested = false
+    private var guestNoticesState = mutableStateOf(NoticeAccess.UNKNOWN)
+    private var criticalPermissionsState = mutableStateOf(CriticalAlertPermissionState())
+    private var remoteCredentialRequestLease: Long? = null
+    private var remoteCredentialRequestJob: Job? = null
     private val noticePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         refreshPlatformState()
     }
@@ -67,6 +112,26 @@ class MainActivity : ComponentActivity() {
             },
         )[DiagnosticViewModel::class.java]
     }
+    private val remoteAccessViewModel: RemoteAccessViewModel by lazy(LazyThreadSafetyMode.NONE) {
+        val collectorApplication = application as CollectorApplication
+        ViewModelProvider(
+            this,
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    require(modelClass.isAssignableFrom(RemoteAccessViewModel::class.java))
+                    return RemoteAccessViewModel(
+                        identity = collectorApplication.ownerIdentity,
+                        ownerAccessClient = collectorApplication.ownerAccessClient,
+                        sessionStore = collectorApplication.remoteHostSessionStore,
+                        pairingAccessClient = collectorApplication.pairingAccessClient,
+                        supportSessionStore = collectorApplication.remoteSupportSessionStore,
+                        roleGuard = collectorApplication.remoteRoleGuard,
+                    ) as T
+                }
+            },
+        )[RemoteAccessViewModel::class.java]
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -84,63 +149,227 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            val collectorApplication = application as CollectorApplication
             val monitorState by monitorViewModel.uiState.collectAsStateWithLifecycle()
-            MonitorTheme(preference = monitorState.overview.settings.theme) {
-                MonitorRoot(
-                    state = monitorState,
-                    actions = MonitorActions(
-                        onReference = monitorViewModel::beginReference,
-                        onAcknowledge = monitorViewModel::acknowledge,
-                        onResume = monitorViewModel::resume,
-                        onOpenCaptureSettings = {
-                            monitorViewModel.clearCaptureSettingsError()
-                            openNotificationListenerSettings()
-                        },
-                        onHistory = monitorViewModel::retryHistory,
-                        onRetry = monitorViewModel::refresh,
-                        onTheme = monitorViewModel::changeTheme,
-                        onHistoryFilter = monitorViewModel::selectHistoryFilter,
-                        onOpenFinancialEntry = monitorViewModel::openFinancialEntry,
-                        onCloseFinancialEntry = monitorViewModel::closeFinancialEntry,
-                        onLoadMoreHistory = monitorViewModel::loadMoreHistory,
-                        onRetryHistory = monitorViewModel::retryHistory,
-                        onPendingReview = monitorViewModel::loadPending,
-                        onLoadMorePending = monitorViewModel::loadMorePending,
-                        onRetryPending = monitorViewModel::retryPending,
-                        onOpenPending = monitorViewModel::openPending,
-                        onClosePending = monitorViewModel::closePending,
-                        onRequestPendingDecision = monitorViewModel::requestPendingDecision,
-                        onDismissPendingDecision = monitorViewModel::dismissPendingDecision,
-                        onConfirmPendingDecision = monitorViewModel::confirmPendingDecision,
-                        onSettingsLimit = monitorViewModel::editSettingsLimit,
-                        onSettingsRepeat = monitorViewModel::editSettingsRepeat,
-                        onSettingsPause = monitorViewModel::editSettingsPause,
-                        onSaveSettings = monitorViewModel::saveSettings,
-                        onOpenNoticeSettings = {
-                            monitorViewModel.clearNoticeSettingsError()
-                            openNoticeChannelSettings()
-                        },
-                    ),
-                    referenceActions = ReferenceActions(
-                        onBalance = monitorViewModel::updateBalance,
-                        onLimit = monitorViewModel::updateLimit,
-                        onReview = monitorViewModel::reviewReference,
-                        onDismissConfirmation = monitorViewModel::dismissReferenceConfirmation,
-                        onConfirm = monitorViewModel::confirmReference,
-                        onCancel = monitorViewModel::cancelReference,
-                    ),
-                    onEnableNotices = ::enableNotices,
-                    diagnostic = {
-                        DiagnosticContent { filename ->
-                            try {
-                                createDocumentLauncher.launch(filename)
-                            } catch (_: RuntimeException) {
-                                diagnosticViewModel.reportExportLaunchFailure()
+            val guestState by collectorApplication.guestMonitorRepository.state.collectAsStateWithLifecycle()
+            val guestNotices by guestNoticesState
+            val criticalPermissions by criticalPermissionsState
+
+            if (guestState.isApprovedGuest) {
+                MonitorTheme(preference = guestState.theme) {
+                    GuestMonitorRoot(
+                        state = guestState,
+                        notices = guestNotices,
+                        criticalPermissions = criticalPermissions,
+                        actions = GuestMonitorActions(
+                            onSyncNow = {
+                                lifecycleScope.launch {
+                                    collectorApplication.guestMonitorRepository.syncNow()
+                                }
+                            },
+                            onAcknowledge = {
+                                lifecycleScope.launch {
+                                    collectorApplication.guestMonitorRepository.acknowledgeLocalAlert()
+                                }
+                            },
+                            onResume = {
+                                lifecycleScope.launch {
+                                    collectorApplication.guestMonitorRepository.resumeLocalAlert()
+                                }
+                            },
+                            onSelectHistoryFilter = { filter ->
+                                lifecycleScope.launch {
+                                    collectorApplication.guestMonitorRepository.selectHistoryFilter(filter)
+                                }
+                            },
+                            onLoadMoreHistory = {
+                                lifecycleScope.launch {
+                                    collectorApplication.guestMonitorRepository.loadMoreHistory()
+                                }
+                            },
+                            onUpdatePauseMinutes = { minutes ->
+                                collectorApplication.guestMonitorRepository.updateLocalPauseMinutes(minutes)
+                            },
+                            onUpdateTheme = { theme ->
+                                collectorApplication.guestMonitorRepository.updateLocalTheme(theme)
+                            },
+                            onEnableNotices = { enableNoticesForChannel(SupportAlertNotifier.CHANNEL_ID) },
+                            onOpenNoticeSettings = { openNoticeChannelSettings(SupportAlertNotifier.CHANNEL_ID) },
+                            onOpenFullScreenSettings = { CriticalAlertPermissions.openFullScreenIntentSettings(this@MainActivity) },
+                            onOpenOverlaySettings = { CriticalAlertPermissions.openOverlaySettings(this@MainActivity) },
+                        ),
+                        remoteAccess = { onClose ->
+                            RemoteAccessContent {
+                                onClose()
+                                triggerPostRemoteAccessSync()
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
+            } else {
+                MonitorTheme(preference = monitorState.overview.settings.theme) {
+                    MonitorRoot(
+                        state = monitorState,
+                        criticalPermissions = criticalPermissions,
+                        onOpenFullScreenSettings = { CriticalAlertPermissions.openFullScreenIntentSettings(this@MainActivity) },
+                        onOpenOverlaySettings = { CriticalAlertPermissions.openOverlaySettings(this@MainActivity) },
+                        actions = MonitorActions(
+                            onReference = monitorViewModel::beginReference,
+                            onAcknowledge = monitorViewModel::acknowledge,
+                            onResume = monitorViewModel::resume,
+                            onOpenCaptureSettings = {
+                                monitorViewModel.clearCaptureSettingsError()
+                                openNotificationListenerSettings()
+                            },
+                            onHistory = monitorViewModel::retryHistory,
+                            onRetry = monitorViewModel::refresh,
+                            onTheme = monitorViewModel::changeTheme,
+                            onHistoryFilter = monitorViewModel::selectHistoryFilter,
+                            onOpenFinancialEntry = monitorViewModel::openFinancialEntry,
+                            onCloseFinancialEntry = monitorViewModel::closeFinancialEntry,
+                            onLoadMoreHistory = monitorViewModel::loadMoreHistory,
+                            onRetryHistory = monitorViewModel::retryHistory,
+                            onPendingReview = monitorViewModel::loadPending,
+                            onLoadMorePending = monitorViewModel::loadMorePending,
+                            onRetryPending = monitorViewModel::retryPending,
+                            onOpenPending = monitorViewModel::openPending,
+                            onClosePending = monitorViewModel::closePending,
+                            onRequestPendingDecision = monitorViewModel::requestPendingDecision,
+                            onDismissPendingDecision = monitorViewModel::dismissPendingDecision,
+                            onConfirmPendingDecision = monitorViewModel::confirmPendingDecision,
+                            onSettingsLimit = { change -> monitorViewModel.editSettingsLimit(change) },
+                            onSettingsRepeat = monitorViewModel::editSettingsRepeat,
+                            onSettingsPause = monitorViewModel::editSettingsPause,
+                            onSaveSettings = monitorViewModel::saveSettings,
+                            onOpenNoticeSettings = {
+                                monitorViewModel.clearNoticeSettingsError()
+                                openNoticeChannelSettings(MonitorNotifier.CHANNEL_ID)
+                            },
+                        ),
+                        referenceActions = ReferenceActions(
+                            onBalance = { change -> monitorViewModel.updateBalance(change) },
+                            onLimit = { change -> monitorViewModel.updateLimit(change) },
+                            onReview = monitorViewModel::reviewReference,
+                            onDismissConfirmation = monitorViewModel::dismissReferenceConfirmation,
+                            onConfirm = monitorViewModel::confirmReference,
+                            onCancel = monitorViewModel::cancelReference,
+                        ),
+                        onEnableNotices = { enableNoticesForChannel(MonitorNotifier.CHANNEL_ID) },
+                        diagnostic = {
+                            DiagnosticContent { filename ->
+                                try {
+                                    createDocumentLauncher.launch(filename)
+                                } catch (_: RuntimeException) {
+                                    diagnosticViewModel.reportExportLaunchFailure()
+                                }
+                            }
+                        },
+                        onOpenRemoteAccess = {},
+                        remoteAccess = { onClose ->
+                            RemoteAccessContent {
+                                onClose()
+                                triggerPostRemoteAccessSync()
+                            }
+                        },
+                    )
+                }
             }
+        }
+    }
+
+    @Composable
+    private fun RemoteAccessContent(onClose: () -> Unit) {
+        val viewModel = remoteAccessViewModel
+        val leaseState = remember(viewModel) { mutableStateOf<Long?>(null) }
+        val state by viewModel.uiState.collectAsStateWithLifecycle()
+        val clipboard = LocalClipboard.current
+        val clipboardScope = rememberCoroutineScope()
+        androidx.compose.runtime.DisposableEffect(viewModel) {
+            val lease = viewModel.attachSurface()
+            leaseState.value = lease
+            onDispose {
+                viewModel.detachSurface(lease)
+                cancelRemoteCredentialRequest(lease)
+            }
+        }
+        val lease = leaseState.value
+        if (lease == null) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            RemoteAccessScreen(
+                state = state,
+                onSignIn = { requestRemoteGoogleCredential(viewModel, lease, reauthenticate = false) },
+                onReauthenticate = {
+                    requestRemoteGoogleCredential(viewModel, lease, reauthenticate = true)
+                },
+                onDiscover = { viewModel.discoverOwnerMonitor(lease) },
+                onConfirmActivation = { confirmationId, replacementWarningConfirmed ->
+                    viewModel.confirmHostActivation(
+                        lease = lease,
+                        confirmationId = confirmationId,
+                        hostReplacementWarningConfirmed = replacementWarningConfirmed,
+                    )
+                },
+                onCancelConfirmation = { viewModel.cancelConfirmation(lease) },
+                onSignOut = { viewModel.signOut(lease) },
+                onCopyUid = { uid ->
+                    clipboardScope.launch {
+                        try {
+                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Firebase UID", uid)))
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Fail safely without crashing MainActivity or leaking exception details.
+                        }
+                    }
+                },
+                onClose = onClose,
+                onOpenSupportPairing = { viewModel.openSupportPairing(lease) },
+                onSubmitSupportInvitation = { invitationSecret, installationLabel, replaceUncertainAttempt ->
+                    viewModel.submitSupportInvitation(
+                        lease = lease,
+                        invitationSecret = invitationSecret,
+                        installationLabel = installationLabel,
+                        replaceUncertainAttempt = replaceUncertainAttempt,
+                    )
+                },
+                onRefreshSupportStatus = { viewModel.refreshSupportStatus(lease) },
+                onOpenHostSupports = { viewModel.openHostSupports(lease) },
+                onRefreshHostSupports = { viewModel.refreshHostSupports(lease) },
+                onRevalidateHostSupportsSession = { viewModel.revalidateHostSupportsSession(lease) },
+                onIssueSupportInvitation = { viewModel.issueSupportInvitation(lease) },
+                onCancelSupportInvitation = { invitationId ->
+                    viewModel.cancelSupportInvitation(lease, invitationId)
+                },
+                onRequestHostSupportDecision = { action, targetId ->
+                    viewModel.requestHostSupportDecision(lease, action, targetId)
+                },
+                onCancelHostSupportDecision = { viewModel.cancelHostSupportDecision(lease) },
+                onConfirmHostSupportDecision = { decisionId ->
+                    viewModel.confirmHostSupportDecision(lease, decisionId)
+                },
+                onCopyInvitation = { invitationId ->
+                    clipboardScope.launch {
+                        try {
+                            val secret = viewModel.invitationForExplicitCopy(lease, invitationId)
+                                ?: return@launch
+                            val label = getString(R.string.pairing_clipboard_invitation_label)
+                            clipboard.setClipEntry(
+                                ClipEntry(buildSensitiveInvitationClipData(label, secret)),
+                            )
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Fail safely without crashing MainActivity or leaking secret/exception details.
+                        }
+                    }
+                },
+            )
         }
     }
 
@@ -169,11 +398,62 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun requestRemoteGoogleCredential(
+        viewModel: RemoteAccessViewModel,
+        lease: Long,
+        reauthenticate: Boolean,
+    ) {
+        if (remoteCredentialRequestJob?.isActive == true) {
+            return
+        }
+        remoteCredentialRequestLease = lease
+        viewModel.googleCredentialRequestStarted(lease)
+        remoteCredentialRequestJob = lifecycleScope.launch {
+            try {
+                val result = GoogleCredentialRequestor(this@MainActivity).request()
+                viewModel.acceptGoogleCredential(lease, result, reauthenticate)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (exception: Exception) {
+                viewModel.googleCredentialRequestFailed(lease)
+                throw exception
+            } finally {
+                if (remoteCredentialRequestLease == lease) {
+                    remoteCredentialRequestLease = null
+                    remoteCredentialRequestJob = null
+                }
+            }
+        }
+    }
+
+    private fun cancelRemoteCredentialRequest(lease: Long) {
+        if (remoteCredentialRequestLease == lease) {
+            remoteCredentialRequestJob?.cancel()
+            remoteCredentialRequestJob = null
+            remoteCredentialRequestLease = null
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         diagnosticViewModel.updateAuthorization(checkNotificationListenerAccess())
         monitorViewModel.refresh()
         refreshPlatformState()
+        triggerPostRemoteAccessSync()
+    }
+
+    private fun triggerPostRemoteAccessSync() {
+        val collectorApplication = application as CollectorApplication
+        collectorApplication.hostMonitorSyncController.requestSync()
+        lifecycleScope.launch {
+            try {
+                collectorApplication.guestMonitorRepository.syncNow()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Safe absorption.
+            }
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -201,11 +481,30 @@ class MainActivity : ComponentActivity() {
                     NoticeAccess.UNKNOWN
                 }
             }
+            val guestNotices = withContext(Dispatchers.IO) {
+                try {
+                    collectorApplication.supportAlertNotifier.ensureChannel()
+                    val manager = getSystemService(NotificationManager::class.java)
+                    val granted = Build.VERSION.SDK_INT < 33 ||
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                    val channel = manager.getNotificationChannel(SupportAlertNotifier.CHANNEL_ID)
+                    when {
+                        !granted || !manager.areNotificationsEnabled() -> NoticeAccess.DENIED
+                        channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE -> NoticeAccess.CHANNEL_BLOCKED
+                        channel.sound == null || channel.importance < NotificationManager.IMPORTANCE_DEFAULT -> NoticeAccess.SILENT
+                        else -> NoticeAccess.AVAILABLE
+                    }
+                } catch (_: Exception) {
+                    NoticeAccess.UNKNOWN
+                }
+            }
+            guestNoticesState.value = guestNotices
+            criticalPermissionsState.value = CriticalAlertPermissions.read(this@MainActivity)
             monitorViewModel.updatePlatform(authorization, notices)
         }
     }
 
-    private fun enableNotices() {
+    private fun enableNoticesForChannel(channelId: String) {
         try {
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
                 (!noticePermissionRequested || shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
@@ -214,7 +513,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
                     putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                    putExtra(Settings.EXTRA_CHANNEL_ID, MonitorNotifier.CHANNEL_ID)
+                    putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
                 })
             }
         } catch (_: RuntimeException) {
@@ -222,11 +521,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun openNoticeChannelSettings() {
+    private fun openNoticeChannelSettings(channelId: String) {
         try {
             startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
                 putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-                putExtra(Settings.EXTRA_CHANNEL_ID, MonitorNotifier.CHANNEL_ID)
+                putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
             })
         } catch (_: RuntimeException) {
             monitorViewModel.reportNoticeSettingsFailure()
