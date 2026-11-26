@@ -9,21 +9,31 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
-val c6PackageName = gradle.startParameter.projectProperties["c6PackageName"]
-    ?: rootProject.file("local.properties")
+val localProperties: Properties = Properties().apply {
+    rootProject.file("local.properties")
         .takeIf { it.isFile }
-        ?.let { propertiesFile ->
-            Properties().apply {
-                propertiesFile.inputStream().use { input ->
-                    InputStreamReader(input, StandardCharsets.UTF_8).use { reader ->
-                        load(reader)
-                    }
-                }
-            }.getProperty("c6.packageName")
+        ?.inputStream()
+        ?.use { input ->
+            InputStreamReader(input, StandardCharsets.UTF_8).use { reader ->
+                load(reader)
+            }
         }
+}
+
+val c6PackageName = gradle.startParameter.projectProperties["c6PackageName"]
+    ?: localProperties.getProperty("c6.packageName")
     ?: ""
 
 val ownerApiOrigin = gradle.startParameter.projectProperties["ownerApiOrigin"] ?: ""
+
+val releaseStoreFilePath = localProperties.getProperty("release.storeFile")?.takeIf(String::isNotBlank)
+val releaseStorePassword = localProperties.getProperty("release.storePassword")?.takeIf(String::isNotBlank)
+val releaseKeyAlias = localProperties.getProperty("release.keyAlias")?.takeIf(String::isNotBlank)
+val releaseKeyPassword = localProperties.getProperty("release.keyPassword")?.takeIf(String::isNotBlank)
+val hasReleaseSigning = releaseStoreFilePath != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
 
 fun String.asJavaStringLiteral(): String = buildString {
     append('"')
@@ -61,6 +71,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "C6_PACKAGE_NAME", c6PackageName.asJavaStringLiteral())
         buildConfigField("String", "OWNER_API_ORIGIN", ownerApiOrigin.asJavaStringLiteral())
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(releaseStoreFilePath))
+                storePassword = requireNotNull(releaseStorePassword)
+                keyAlias = requireNotNull(releaseKeyAlias)
+                keyPassword = requireNotNull(releaseKeyPassword)
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     buildFeatures {
