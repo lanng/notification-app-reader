@@ -17,6 +17,7 @@ import br.com.c6tag.diagnostico.MainActivity
 import br.com.c6tag.diagnostico.R
 import br.com.c6tag.diagnostico.monitor.MonitorOverview
 import br.com.c6tag.diagnostico.remote.SharedAlertSeverity
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertController
 import br.com.c6tag.diagnostico.remote.classifySharedAlert
 import java.math.BigDecimal
 import java.text.NumberFormat
@@ -46,6 +47,7 @@ internal class MonitorNotifier(
     platformOverride: MonitorNotificationPlatform? = null,
 ) {
     private val platform = platformOverride ?: AndroidNotificationPlatform(context.applicationContext)
+    private val usesRealPlatform = platformOverride == null
 
     fun capabilities(): NotificationCapability {
         val channel = platform.channel()
@@ -56,18 +58,55 @@ internal class MonitorNotifier(
     }
 
     fun submit(overview: MonitorOverview, intent: EmissionIntent): SubmissionOutcome = try {
-        val notification = build(overview, intent)
-        if (notification == null) {
-            SubmissionOutcome.FAILED
+        val cents = overview.balanceCents
+        val isCritical = cents != null &&
+            !overview.needsReference &&
+            classifySharedAlert(cents, overview.settings.limitCents) == SharedAlertSeverity.CRITICAL
+
+        if (usesRealPlatform && isCritical) {
+            val cycle = overview.alertCycle
+            if (cycle == null || cycle.status != AlertStatus.ACTIVE || cycle.id != intent.cycleId ||
+                cycle.version != intent.version || cycle.emissionIntent != intent
+            ) {
+                SubmissionOutcome.FAILED
+            } else {
+                ensureChannel()
+                CriticalAlertController.ensureChannel(context)
+                val capability = capabilities()
+                when {
+                    !capability.permissionGranted || !capability.appNotificationsEnabled ->
+                        SubmissionOutcome.PERMISSION_DENIED
+
+                    !capability.channelExists || capability.channelBlocked ->
+                        SubmissionOutcome.CHANNEL_BLOCKED
+
+                    else -> {
+                        platform.cancel()
+                        val posted = CriticalAlertController.trigger(
+                            context = context,
+                            isGuest = false,
+                            balanceCents = cents,
+                            limitCents = overview.settings.limitCents,
+                            cycleId = cycle.id,
+                        )
+                        if (posted) SubmissionOutcome.ACCEPTED else SubmissionOutcome.FAILED
+                    }
+                }
+            }
         } else {
-            ensureChannel()
-            val capability = capabilities()
-            when {
-                !capability.permissionGranted || !capability.appNotificationsEnabled -> SubmissionOutcome.PERMISSION_DENIED
-                !capability.channelExists || capability.channelBlocked -> SubmissionOutcome.CHANNEL_BLOCKED
-                else -> {
-                    platform.publish(notification)
-                    SubmissionOutcome.ACCEPTED
+            val notification = build(overview, intent)
+            if (notification == null) {
+                SubmissionOutcome.FAILED
+            } else {
+                ensureChannel()
+                val capability = capabilities()
+                when {
+                    !capability.permissionGranted || !capability.appNotificationsEnabled -> SubmissionOutcome.PERMISSION_DENIED
+                    !capability.channelExists || capability.channelBlocked -> SubmissionOutcome.CHANNEL_BLOCKED
+                    else -> {
+                        platform.publish(notification)
+                        SubmissionOutcome.ACCEPTED
+                    }
                 }
             }
         }
@@ -77,7 +116,12 @@ internal class MonitorNotifier(
         SubmissionOutcome.FAILED
     }
 
-    fun cancel() = platform.cancel()
+    fun cancel() {
+        platform.cancel()
+        if (usesRealPlatform) {
+            CriticalAlertController.stopForRole(context, isGuest = false)
+        }
+    }
 
     fun ensureChannel() {
         if (platform.channel() != null) return

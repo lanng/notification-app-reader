@@ -180,6 +180,8 @@ class ManifestPrivacyTest {
             "android.permission.USE_BIOMETRIC",
             "android.permission.USE_FINGERPRINT",
             "android.permission.USE_FULL_SCREEN_INTENT",
+            "android.permission.SYSTEM_ALERT_WINDOW",
+            "android.permission.VIBRATE",
             "android.permission.WAKE_LOCK",
             "android.permission.RECEIVE_BOOT_COMPLETED",
             "android.permission.FOREGROUND_SERVICE",

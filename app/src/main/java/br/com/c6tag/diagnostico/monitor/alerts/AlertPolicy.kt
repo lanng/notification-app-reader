@@ -1,5 +1,8 @@
 package br.com.c6tag.diagnostico.monitor.alerts
 
+import br.com.c6tag.diagnostico.remote.SharedAlertSeverity
+import br.com.c6tag.diagnostico.remote.classifySharedAlert
+
 internal class AlertPolicy {
     fun acknowledge(
         cycle: AlertCycle?,
@@ -72,6 +75,7 @@ internal class AlertPolicy {
                 emissionIntent = null,
                 lastSubmissionOutcome = outcome,
                 emissionCount = cycle.emissionCount + 1,
+                criticalAlerted = cycle.criticalAlerted || intent.isCritical,
             ))
         }
     }
@@ -87,12 +91,13 @@ internal class AlertPolicy {
         if (balance.limitCents < 0L) return AlertEvaluation(cycle, rejection = AlertRejection.INVALID_SETTINGS)
         val cents = balance.balanceCents ?: return AlertEvaluation(cycle)
         val low = cents < balance.limitCents
+        val isCritical = classifySharedAlert(cents, balance.limitCents) == SharedAlertSeverity.CRITICAL
         if (cycle == null || cycle.status == AlertStatus.CLOSED) {
             if (!low) return AlertEvaluation(cycle)
             if (newCycleId.isBlank() || newCycleId == cycle?.id) {
                 return AlertEvaluation(cycle, rejection = AlertRejection.INVALID_CYCLE)
             }
-            val intent = EmissionIntent(newCycleId, 1L, nowMs)
+            val intent = EmissionIntent(newCycleId, 1L, nowMs, isCritical = isCritical)
             return AlertEvaluation(
                 AlertCycle(newCycleId, AlertStatus.ACTIVE, nowMs, emissionIntent = intent), intent,
             )
@@ -105,11 +110,12 @@ internal class AlertPolicy {
                     pauseUntilMs = null, emissionIntent = null, nextReminderAtMs = null,
                 ))
             }
+            val escalatedToCritical = isCritical && !cycle.criticalAlerted
             var current = cycle.copy(
                 nextReminderAtMs = cycle.lastSubmittedAtMs?.let { deadline(it, settings.repeatMinutes) },
             )
             if (current.status == AlertStatus.PAUSED) {
-                if (current.pauseUntilMs != null && nowMs < current.pauseUntilMs) {
+                if (!escalatedToCritical && current.pauseUntilMs != null && nowMs < current.pauseUntilMs) {
                     return@checked AlertEvaluation(current)
                 }
                 current = current.copy(
@@ -117,12 +123,16 @@ internal class AlertPolicy {
                     version = Math.incrementExact(current.version),
                 )
             }
-            current.emissionIntent?.let { return@checked AlertEvaluation(current, it) }
-            if (current.nextReminderAtMs != null && nowMs < current.nextReminderAtMs) {
+            current.emissionIntent?.let { existingIntent ->
+                if (!escalatedToCritical || existingIntent.isCritical) {
+                    return@checked AlertEvaluation(current, existingIntent)
+                }
+            }
+            if (!escalatedToCritical && current.nextReminderAtMs != null && nowMs < current.nextReminderAtMs) {
                 return@checked AlertEvaluation(current)
             }
             val version = Math.incrementExact(current.version)
-            val intent = EmissionIntent(current.id, version, nowMs)
+            val intent = EmissionIntent(current.id, version, nowMs, isCritical = isCritical)
             AlertEvaluation(current.copy(version = version, emissionIntent = intent), intent)
         }
     }

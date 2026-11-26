@@ -51,6 +51,8 @@ import br.com.c6tag.diagnostico.monitor.alerts.MonitorNotifier
 import br.com.c6tag.diagnostico.remote.access.GoogleCredentialRequestor
 import br.com.c6tag.diagnostico.remote.access.RemoteAccessViewModel
 import br.com.c6tag.diagnostico.remote.access.SecretValue
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissionState
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissions
 import br.com.c6tag.diagnostico.remote.sync.SupportAlertNotifier
 import br.com.c6tag.diagnostico.ui.remote.GuestMonitorActions
 import br.com.c6tag.diagnostico.ui.remote.GuestMonitorRoot
@@ -76,6 +78,7 @@ internal fun buildSensitiveInvitationClipData(
 class MainActivity : ComponentActivity() {
     private var noticePermissionRequested = false
     private var guestNoticesState = mutableStateOf(NoticeAccess.UNKNOWN)
+    private var criticalPermissionsState = mutableStateOf(CriticalAlertPermissionState())
     private var remoteCredentialRequestLease: Long? = null
     private var remoteCredentialRequestJob: Job? = null
     private val noticePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -150,12 +153,14 @@ class MainActivity : ComponentActivity() {
             val monitorState by monitorViewModel.uiState.collectAsStateWithLifecycle()
             val guestState by collectorApplication.guestMonitorRepository.state.collectAsStateWithLifecycle()
             val guestNotices by guestNoticesState
+            val criticalPermissions by criticalPermissionsState
 
             if (guestState.isApprovedGuest) {
                 MonitorTheme(preference = guestState.theme) {
                     GuestMonitorRoot(
                         state = guestState,
                         notices = guestNotices,
+                        criticalPermissions = criticalPermissions,
                         actions = GuestMonitorActions(
                             onSyncNow = {
                                 lifecycleScope.launch {
@@ -190,6 +195,8 @@ class MainActivity : ComponentActivity() {
                             },
                             onEnableNotices = { enableNoticesForChannel(SupportAlertNotifier.CHANNEL_ID) },
                             onOpenNoticeSettings = { openNoticeChannelSettings(SupportAlertNotifier.CHANNEL_ID) },
+                            onOpenFullScreenSettings = { CriticalAlertPermissions.openFullScreenIntentSettings(this@MainActivity) },
+                            onOpenOverlaySettings = { CriticalAlertPermissions.openOverlaySettings(this@MainActivity) },
                         ),
                         remoteAccess = { onClose ->
                             RemoteAccessContent {
@@ -203,6 +210,9 @@ class MainActivity : ComponentActivity() {
                 MonitorTheme(preference = monitorState.overview.settings.theme) {
                     MonitorRoot(
                         state = monitorState,
+                        criticalPermissions = criticalPermissions,
+                        onOpenFullScreenSettings = { CriticalAlertPermissions.openFullScreenIntentSettings(this@MainActivity) },
+                        onOpenOverlaySettings = { CriticalAlertPermissions.openOverlaySettings(this@MainActivity) },
                         actions = MonitorActions(
                             onReference = monitorViewModel::beginReference,
                             onAcknowledge = monitorViewModel::acknowledge,
@@ -489,6 +499,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             guestNoticesState.value = guestNotices
+            criticalPermissionsState.value = CriticalAlertPermissions.read(this@MainActivity)
             monitorViewModel.updatePlatform(authorization, notices)
         }
     }

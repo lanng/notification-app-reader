@@ -56,6 +56,7 @@ import br.com.c6tag.diagnostico.monitor.HistoryFilter
 import br.com.c6tag.diagnostico.monitor.ThemePreference
 import br.com.c6tag.diagnostico.remote.HostContactState
 import br.com.c6tag.diagnostico.remote.SharedAlertSeverity
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissionState
 import br.com.c6tag.diagnostico.remote.hostContactState
 import br.com.c6tag.diagnostico.remote.sync.GuestAlertPolicy
 import br.com.c6tag.diagnostico.remote.sync.GuestMonitorUiState
@@ -76,6 +77,8 @@ internal data class GuestMonitorActions(
     val onUpdateTheme: (ThemePreference) -> Unit,
     val onEnableNotices: () -> Unit,
     val onOpenNoticeSettings: () -> Unit,
+    val onOpenFullScreenSettings: () -> Unit = {},
+    val onOpenOverlaySettings: () -> Unit = {},
 )
 
 @Composable
@@ -84,6 +87,7 @@ internal fun GuestMonitorRoot(
     notices: NoticeAccess,
     actions: GuestMonitorActions,
     remoteAccess: @Composable (onClose: () -> Unit) -> Unit,
+    criticalPermissions: CriticalAlertPermissionState = CriticalAlertPermissionState(),
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var remoteAccessVisible by rememberSaveable { mutableStateOf(false) }
@@ -161,6 +165,7 @@ internal fun GuestMonitorRoot(
                 else -> GuestSettingsScreen(
                     state = state,
                     notices = notices,
+                    criticalPermissions = criticalPermissions,
                     actions = actions,
                     onOpenRemoteAccess = { remoteAccessVisible = true },
                 )
@@ -540,6 +545,7 @@ private fun GuestHistoryScreen(
 private fun GuestSettingsScreen(
     state: GuestMonitorUiState,
     notices: NoticeAccess,
+    criticalPermissions: CriticalAlertPermissionState,
     actions: GuestMonitorActions,
     onOpenRemoteAccess: () -> Unit,
 ) {
@@ -681,6 +687,47 @@ private fun GuestSettingsScreen(
                     label = stringResource(R.string.monitor_notice_settings_action),
                     onClick = actions.onOpenNoticeSettings,
                     tag = "guest-notice-settings",
+                )
+                Text(
+                    stringResource(R.string.critical_alarm_permissions_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    stringResource(R.string.critical_alarm_permissions_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    stringResource(
+                        if (criticalPermissions.canUseFullScreenIntent) {
+                            R.string.critical_alarm_fullscreen_granted
+                        } else {
+                            R.string.critical_alarm_fullscreen_denied
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                if (!criticalPermissions.canUseFullScreenIntent) {
+                    MonitorSettingsActionRow(
+                        label = stringResource(R.string.critical_alarm_fullscreen_action),
+                        onClick = actions.onOpenFullScreenSettings,
+                        tag = "guest-critical-fullscreen",
+                    )
+                }
+                Text(
+                    stringResource(
+                        if (criticalPermissions.canDrawOverlays) {
+                            R.string.critical_alarm_overlay_granted
+                        } else {
+                            R.string.critical_alarm_overlay_denied
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                MonitorSettingsActionRow(
+                    label = stringResource(R.string.critical_alarm_overlay_action),
+                    onClick = actions.onOpenOverlaySettings,
+                    tag = "guest-critical-overlay",
                 )
             }
         }

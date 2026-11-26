@@ -12,6 +12,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import br.com.c6tag.diagnostico.R
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissionState
 
 @Composable
 internal fun MonitorRoot(
@@ -22,6 +23,9 @@ internal fun MonitorRoot(
     diagnostic: @Composable () -> Unit,
     onOpenRemoteAccess: () -> Unit = {},
     remoteAccess: @Composable (onClose: () -> Unit) -> Unit = {},
+    criticalPermissions: CriticalAlertPermissionState = CriticalAlertPermissionState(),
+    onOpenFullScreenSettings: () -> Unit = {},
+    onOpenOverlaySettings: () -> Unit = {},
 ) {
     var selected by rememberSaveable { mutableIntStateOf(0) }
     var diagnosticVisible by rememberSaveable { mutableStateOf(false) }
@@ -131,6 +135,9 @@ internal fun MonitorRoot(
                         onOpenRemoteAccess()
                         remoteAccessVisible = true
                     },
+                    criticalPermissions = criticalPermissions,
+                    onOpenFullScreenSettings = onOpenFullScreenSettings,
+                    onOpenOverlaySettings = onOpenOverlaySettings,
                 )
             }
         }

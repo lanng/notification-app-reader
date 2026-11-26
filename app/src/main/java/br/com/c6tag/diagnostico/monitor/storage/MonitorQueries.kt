@@ -47,10 +47,16 @@ internal object MonitorQueries {
                 it.string("id"), AlertStatus.valueOf(it.string("status")), it.long("opened_at_ms"), it.long("version"),
                 it.nullLong("last_submitted_at_ms"), it.nullLong("next_reminder_at_ms"), it.nullLong("pause_until_ms"),
                 it.nullLong("intent_version")?.let { version ->
-                    EmissionIntent(it.string("id"), version, it.long("intent_requested_at_ms"))
+                    EmissionIntent(
+                        it.string("id"),
+                        version,
+                        it.long("intent_requested_at_ms"),
+                        it.int("intent_critical") == 1,
+                    )
                 },
                 it.nullString("last_submission_outcome")?.let(SubmissionOutcome::valueOf),
                 it.int("emission_count"),
+                it.int("critical_alerted") == 1,
             )
         }
 

@@ -16,6 +16,7 @@ import android.provider.Settings
 import br.com.c6tag.diagnostico.MainActivity
 import br.com.c6tag.diagnostico.R
 import br.com.c6tag.diagnostico.remote.SharedAlertSeverity
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertController
 import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Locale
@@ -56,6 +57,18 @@ internal class SupportAlertNotifier(
     override fun notify(snapshot: SharedMonitorSnapshot): Boolean {
         if (!canPostNotifications()) return false
         ensureChannel()
+
+        if (snapshot.severity == SharedAlertSeverity.CRITICAL) {
+            manager.cancel(NOTIFICATION_ID)
+            return CriticalAlertController.trigger(
+                context = appContext,
+                isGuest = true,
+                balanceCents = snapshot.balanceCents,
+                limitCents = snapshot.limitCents,
+                cycleId = snapshot.alertCycleId,
+            )
+        }
+
         val channel = manager.getNotificationChannel(CHANNEL_ID)
         if (channel == null || channel.importance == NotificationManager.IMPORTANCE_NONE) {
             return false
@@ -117,6 +130,7 @@ internal class SupportAlertNotifier(
 
     override fun cancel() {
         manager.cancel(NOTIFICATION_ID)
+        CriticalAlertController.stopForRole(appContext, isGuest = true)
     }
 
     private fun canPostNotifications(): Boolean {

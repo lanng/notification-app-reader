@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import br.com.c6tag.diagnostico.BuildConfig
 import br.com.c6tag.diagnostico.R
 import br.com.c6tag.diagnostico.monitor.ThemePreference
+import br.com.c6tag.diagnostico.remote.alarm.CriticalAlertPermissionState
 import br.com.c6tag.diagnostico.remote.probe.DebugAlertProbeEntry
 
 @Composable
@@ -37,6 +38,9 @@ internal fun MonitorSettingsScreen(
     state: MonitorUiState,
     actions: MonitorActions,
     onOpenRemoteAccess: () -> Unit = {},
+    criticalPermissions: CriticalAlertPermissionState = CriticalAlertPermissionState(),
+    onOpenFullScreenSettings: () -> Unit = {},
+    onOpenOverlaySettings: () -> Unit = {},
 ) {
     val draft = state.settingsDraft ?: MonitorSettingsDraft(
         limit = brlEditable(state.overview.settings.limitCents),
@@ -176,6 +180,46 @@ internal fun MonitorSettingsScreen(
                         tag = "settings-notice-settings",
                     )
                     state.noticeSettingsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        stringResource(R.string.critical_alarm_permissions_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        stringResource(R.string.critical_alarm_permissions_description),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        stringResource(
+                            if (criticalPermissions.canUseFullScreenIntent) {
+                                R.string.critical_alarm_fullscreen_granted
+                            } else {
+                                R.string.critical_alarm_fullscreen_denied
+                            },
+                        ),
+                    )
+                    if (!criticalPermissions.canUseFullScreenIntent) {
+                        MonitorSettingsActionRow(
+                            label = stringResource(R.string.critical_alarm_fullscreen_action),
+                            onClick = onOpenFullScreenSettings,
+                            tag = "settings-critical-fullscreen",
+                        )
+                    }
+                    Text(
+                        stringResource(
+                            if (criticalPermissions.canDrawOverlays) {
+                                R.string.critical_alarm_overlay_granted
+                            } else {
+                                R.string.critical_alarm_overlay_denied
+                            },
+                        ),
+                    )
+                    MonitorSettingsActionRow(
+                        label = stringResource(R.string.critical_alarm_overlay_action),
+                        onClick = onOpenOverlaySettings,
+                        tag = "settings-critical-overlay",
+                    )
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     MonitorCaptureStatus(state, actions)

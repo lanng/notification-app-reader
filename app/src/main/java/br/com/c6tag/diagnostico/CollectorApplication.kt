@@ -113,6 +113,28 @@ class CollectorApplication : Application() {
         }
     }
 
+    internal fun receiveCriticalAlertAcknowledge(
+        isGuest: Boolean,
+        cycleId: String?,
+        finished: () -> Unit,
+    ) {
+        applicationScope.launch {
+            try {
+                if (isGuest) {
+                    guestMonitorRepository.acknowledgeLocalAlert()
+                } else if (!cycleId.isNullOrBlank()) {
+                    monitorCoordinator.acknowledge(cycleId)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Safe absorption.
+            } finally {
+                finished()
+            }
+        }
+    }
+
     internal fun onFcmTokenRefreshed(token: String) {
         applicationScope.launch {
             try {

@@ -91,10 +91,20 @@ internal class DiagnosticDatabase(
                     )
                 }
             }
-        } else if (oldVersion == 2) {
-            database.execSQL(
-                "ALTER TABLE monitor_alert_cycles ADD COLUMN emission_count INTEGER NOT NULL DEFAULT 0 CHECK(emission_count>=0)",
-            )
+        } else {
+            if (oldVersion < 3) {
+                database.execSQL(
+                    "ALTER TABLE monitor_alert_cycles ADD COLUMN emission_count INTEGER NOT NULL DEFAULT 0 CHECK(emission_count>=0)",
+                )
+            }
+            if (oldVersion < 4) {
+                database.execSQL(
+                    "ALTER TABLE monitor_alert_cycles ADD COLUMN critical_alerted INTEGER NOT NULL DEFAULT 0 CHECK(critical_alerted IN(0,1))",
+                )
+                database.execSQL(
+                    "ALTER TABLE monitor_alert_cycles ADD COLUMN intent_critical INTEGER NOT NULL DEFAULT 0 CHECK(intent_critical IN(0,1))",
+                )
+            }
         }
     }
 
@@ -208,7 +218,7 @@ internal class DiagnosticDatabase(
 
     private companion object {
         const val DEFAULT_DATABASE_NAME = "diagnostic_history.db"
-        const val SCHEMA_VERSION = 3
+        const val SCHEMA_VERSION = 4
         const val TABLE_EVENTS = "events"
         const val COLUMN_ID = "id"
         const val COLUMN_OBSERVED_AT = "observed_at_ms"

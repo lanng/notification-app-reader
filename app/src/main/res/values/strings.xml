@@ -303,4 +303,25 @@
     <string name="guest_settings_inherited_explanation">O limite e o intervalo de repetição são herdados da conta host e não podem ser modificados pelo convidado.</string>
     <string name="guest_settings_local_pause_section">Pausa local neste aparelho</string>
     <string name="guest_settings_local_pause_explanation">Ao tocar em Entendi, a pausa vale apenas para este aparelho convidado e não afeta o host.</string>
+    <string name="critical_alarm_channel_name">Alarme crítico de saldo</string>
+    <string name="critical_alarm_channel_description">Alerta em tela cheia com som contínuo quando o saldo cai abaixo da metade do limite.</string>
+    <string name="critical_alarm_notification_body">Saldo estimado: %1$s · Limite: %2$s. Toque para abrir ou parar o alarme.</string>
+    <string name="critical_alarm_stop_action">Parar alarme</string>
+    <string name="critical_alarm_role_host">HOST · ALERTA CRÍTICO</string>
+    <string name="critical_alarm_role_guest">CONVIDADO · ALERTA CRÍTICO</string>
+    <string name="critical_alarm_screen_title">Saldo crítico nas tags</string>
+    <string name="critical_alarm_screen_subtitle">O saldo caiu abaixo da metade do limite configurado. Recarregue para evitar bloqueio nos pedágios.</string>
+    <string name="critical_alarm_limits_detail">Limite: %1$s · Crítico abaixo de %2$s</string>
+    <string name="critical_alarm_sound_countdown">Alarme sonoro ativo · %1$ds restantes</string>
+    <string name="critical_alarm_stop_button">PARAR ALARME</string>
+    <string name="critical_alarm_pause_button">Entendi · pausar alertas neste aparelho</string>
+    <string name="critical_alarm_open_app">Abrir aplicativo</string>
+    <string name="critical_alarm_permissions_title">Alarme crítico em tela cheia</string>
+    <string name="critical_alarm_permissions_description">Permite abrir o alerta crítico em tela cheia com som contínuo (30s), tanto com a tela bloqueada quanto usando outros apps.</string>
+    <string name="critical_alarm_fullscreen_granted">Tela cheia (tela bloqueada): permitida</string>
+    <string name="critical_alarm_fullscreen_denied">Tela cheia (tela bloqueada): desativada</string>
+    <string name="critical_alarm_fullscreen_action">Permitir tela cheia (bloqueado)</string>
+    <string name="critical_alarm_overlay_granted">Sobrepor a outros apps (desbloqueado): permitida</string>
+    <string name="critical_alarm_overlay_denied">Sobrepor a outros apps (desbloqueado): desativada</string>
+    <string name="critical_alarm_overlay_action">Permitir sobrepor a outros apps</string>
 </resources>
